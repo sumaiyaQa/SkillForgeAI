@@ -759,6 +759,14 @@ const getRecommendedProblem = () => {
                       </div>
                     )}
 
+                    {/*AST Analysis Panel*/}
+                    {showASTPanel && (
+                      <ASTTestPanel
+                      problemId={currentProblem.id}
+                      studentCode={code}
+                      />
+                    )}
+
 
                   </div>
                 ) : (

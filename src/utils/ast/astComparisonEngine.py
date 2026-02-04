@@ -362,10 +362,22 @@ class ASTComparator:
         self.max_student_depth = 0
         self.max_reference_depth = 0
         
+        #Count total nodes in both tress first
+        student_total = self._count_nodes(student)
+        reference_total = self._count_nodes(reference)
+
+        #Perform Comparision
         self._compare_nodes(student, reference)
         
-        # Calculate similarity score
-        similarity = self.matched_nodes / max(self.total_nodes, 1)
+        # Calculate similarity using max nodes as denominator
+        # This handles: empty tress, student having extra nodes, reference having extra nodes
+        max_nodes = max(student_total, reference_total, 1)
+        similarity = self.matched_nodes / max_nodes
+
+        # Additional penalty for significant sixe differences
+        size_diff_penalty = abs(student_total - reference_total) / max_nodes if max_nodes > 0 else 0
+        adjusted_similarity = max(0, similarity - (size_diff_penalty * 0.1)) # 10% weight on size diff
+
         
         return ComparisonResult(
             matches=len([d for d in self.divergences if d.severity == 'error']) == 0,
@@ -375,17 +387,29 @@ class ASTComparator:
                 "totalNodes": self.total_nodes,
                 "matchedNodes": self.matched_nodes,
                 "studentDepth": self.max_student_depth,
-                "referenceDepth": self.max_reference_depth
+                "referenceDepth": self.max_reference_depth,
+                "studentTotalNodes": student_total,
+                "referenceTotalNodes": reference_total
             }
         )
+    def _count_nodes(self, node:NormalizedNode) -> int:
+        """Count total nodes in a tree"""
+        count = 1
+        for child in node.children.values():
+            if isinstance(child, list):
+                for c in child:
+                    if isinstance(c, NormalizedNode):
+                        count+= self._count_nodes(c)
+            elif isinstance(child, NormalizedNode):
+                count += self._count_nodes(child)
+        return count
     
-    def _compare_nodes(self, student: NormalizedNode, reference: NormalizedNode) -> bool:
-        """Recursively compare two nodes and their children."""
+    def _compare_nodes(self, student: NormalizedNode, reference: NormalizedNode):
         self.total_nodes += 1
         self.max_student_depth = max(self.max_student_depth, student.depth)
         self.max_reference_depth = max(self.max_reference_depth, reference.depth)
-        
-        # Check type match (with flexibility rules)
+
+        # 1. Check type match
         if not self._types_match(student.type, reference.type):
             self.divergences.append(Divergence(
                 type=DivergenceType.TYPE_MISMATCH.value,
@@ -398,11 +422,11 @@ class ASTComparator:
                 severity="error",
                 suggestion=self._get_type_suggestion(student.type, reference.type)
             ))
-            return False
+            return False # Stop recursion on this branch if types are totally different
         
         self.matched_nodes += 1
         
-        # Check operator match
+        # 2. Check operator match
         if reference.operator and student.operator != reference.operator:
             if not self._operators_equivalent(student.operator, reference.operator):
                 self.divergences.append(Divergence(
@@ -417,9 +441,8 @@ class ASTComparator:
                     suggestion=f"Consider using {reference.operator} instead"
                 ))
         
-        # Compare children
+        # 3. Recursively compare children
         self._compare_children(student, reference)
-        
         return True
     
     def _types_match(self, student_type: str, reference_type: str) -> bool:
@@ -428,12 +451,12 @@ class ASTComparator:
             return True
         
         # Loop type interchange
-        if self.flexibility.get('allowLoopTypeChange'):
+        if self.flexibility.get('allowLoopTypeChange') is True:
             if {student_type, reference_type} == {'For', 'While'}:
                 return True
         
         # Comprehension swap
-        if self.flexibility.get('allowComprehensionSwap'):
+        if self.flexibility.get('allowComprehensionSwap') is True:
             comprehensions = {'ListComp', 'For'}
             if student_type in comprehensions and reference_type in comprehensions:
                 return True

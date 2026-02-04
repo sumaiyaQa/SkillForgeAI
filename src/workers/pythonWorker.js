@@ -903,12 +903,20 @@ self.onmessage = async (event) => {
     const instance = await getPyodide();
 
     // Handle AST comparison requests
+   // Handle AST comparison requests
     if (type === 'ast_compare') {
         try {
-         const resultJson = await instance.runPythonAsync(`
+            // 1. Convert JS 'true' to Python 'True'
+            const flexibilitySanitized = JSON.stringify(flexibility || {})
+                .replace(/:true/g, ":True")
+                .replace(/:false/g, ":False");
+
+            // 2. Use 'flexibilitySanitized' in the Python string below
+            const resultJson = await instance.runPythonAsync(`
 import json
 from comparator_lib import compare_ast
-result = compare_ast(${JSON.stringify(studentCode)}, ${JSON.stringify(referenceCode)}, ${JSON.stringify(flexibility || {})})
+# FIX: Pass the sanitized string directly as a Python dict literal
+result = compare_ast(${JSON.stringify(studentCode)}, ${JSON.stringify(referenceCode)}, ${flexibilitySanitized})
 json.dumps(result)
 `);
             const result = JSON.parse(resultJson);
@@ -920,16 +928,23 @@ json.dumps(result)
     }
 
     // Handle pattern checking requests
+ // Handle pattern checking requests
     if (type === 'check_patterns') {
         try {
+            // Helper to convert JS values to Python literal strings
+            const toPy = (val) => {
+                if (val === null || val === undefined) return "None";
+                return JSON.stringify(val);
+            };
+
             const resultJson = await instance.runPythonAsync(`
 import json
 from comparator_lib import check_patterns
 result = check_patterns(
-    ${JSON.stringify(code)},
-    ${JSON.stringify(requiredPatterns || null)},
-    ${JSON.stringify(forbiddenPatterns || null)},
-    ${JSON.stringify(requiredNodes || null)}
+    ${toPy(code)},
+    ${toPy(requiredPatterns)},
+    ${toPy(forbiddenPatterns)},
+    ${toPy(requiredNodes)}
 )
 json.dumps(result)
 `);
@@ -940,7 +955,6 @@ json.dumps(result)
         }
         return;
     }
-
     // Default: Run code with analysis
     let hints = [];
     let summary = { total_issues: 0 };

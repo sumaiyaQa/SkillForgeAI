@@ -67,19 +67,19 @@ class AntiPatternDetector(ABC):
 class AnalysisContext:
     """Context maintained during AST traversal"""
     def __init__(self, source_code: str):
-        self.source_code = source_code
-        self.lines = source_code.split('\n')
-        self.assigned_vars: Set[str] = set()
-        self.used_vars: Set[str] = set()
-        self.function_defs: Dict[str, ast.FunctionDef] = {}
-        self.loop_depth = 0
-        self.current_function: Optional[str] = None
-        self.imports: Set[str] = set()
-        self.has_break: bool = False
-        self.has_return: bool = False
-        self.loop_vars: Set[str] = set()
-        self.mutated_vars: Set[str] = set()
-        self.condition_count = 0
+        self.source_code = source_code # Stores the full code as one big thing
+        self.lines = source_code.split('\n') #Splits the code into individual lines, so we can say line 12 has error
+        self.assigned_vars: Set[str] = set() #keep track of variables that were created or assigned
+        self.used_vars: Set[str] = set() #varibales that were used
+        self.function_defs: Dict[str, ast.FunctionDef] = {} #key= name of the fun, value= the functions's AST node
+        self.loop_depth = 0 #counts how deep we are in the loop
+        self.current_function: Optional[str] = None #Which fun r we currently in or none
+        self.imports: Set[str] = set() #what modules were imported
+        self.has_break: bool = False #Does this loop have a break?
+        self.has_return: bool = False #Does this fun have a return?
+        self.loop_vars: Set[str] = set() #varibale inside a loop
+        self.mutated_vars: Set[str] = set() #variable that were changed
+        self.condition_count = 0 #how many if/elif condition are there
 
 # ============================================
 # CONTROL FLOW ANTI-PATTERNS
@@ -96,20 +96,20 @@ class WhileInsteadOfForDetector(AntiPatternDetector):
         self.severity = Severity.WARNING
         self.description = "Using while loop with manual counter instead of for-range"
     
-    def detect(self, node: ast.AST, context: AnalysisContext) -> Optional[AntiPatternMatch]:
-        if not isinstance(node, ast.While):
+    def detect(self, node: ast.AST, context: AnalysisContext) -> Optional[AntiPatternMatch]: #This fun check if this piece of code a bad while loop?
+        if not isinstance(node, ast.While): #If this isnt a while loop return none
             return None
         
         # Check for patterns like: i = 0; while i < n: ... i += 1
         body = node.body
-        if len(body) < 2:
+        if len(body) < 2: # If the loop body is too small skip it
             return None
         
         # Look for increment pattern at end of body
-        last_stmt = body[-1]
+        last_stmt = body[-1] #Take the last line
         if isinstance(last_stmt, ast.AugAssign):
-            if isinstance(last_stmt.op, ast.Add) and isinstance(last_stmt.value, ast.Constant):
-                if last_stmt.value.value == 1:
+            if isinstance(last_stmt.op, ast.Add) and isinstance(last_stmt.value, ast.Constant): #checks if its adding
+                if last_stmt.value.value == 1: # Is it adding 1
                     return self.create_match(
                         node,
                         "This while loop with manual increment could be simplified to a 'for' loop",
