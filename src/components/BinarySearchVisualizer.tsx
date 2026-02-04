@@ -39,7 +39,17 @@ export function generateBinarySearchSteps(arrayInput: number[], target: number):
     description:
       "Start: we will repeatedly check the middle of the current range and then discard half of the search space.",
   });
-
+if (array.length === 0) {
+  return [{
+    step: 0,
+    array: [],
+    low: 0,
+    high: -1,
+    mid: -1,
+    comparison: "none",
+    description: "Array is empty; target cannot be found."
+  }];
+}
   let low = 0;
   let high = array.length - 1;
   let step = 1;

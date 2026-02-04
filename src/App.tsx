@@ -1,12 +1,23 @@
-import React, { useState, useEffect } from 'react';
-import { Play, RefreshCw, BookOpen, Eye, Code2, Lightbulb, CheckCircle, XCircle, Zap } from 'lucide-react';
+import React, { useEffect, useState, useCallback } from 'react';
+import {
+  Play,
+  RefreshCw,
+  BookOpen,
+  Eye,
+  Code2,
+  Lightbulb,
+  CheckCircle,
+  XCircle,
+  Zap,
+} from 'lucide-react';
 import { problemDatabase, type Problem } from './utils/problemDatabase';
 import { runPython } from './utils/pythonRunner';
 import FactorialVisualizer from './components/FactorialVisualizer';
-import { exportStudyData } from './utils/study';
 import BubbleSortVisualizer from './components/BubbleSortVisualizer';
 import BinarySearchVisualizer from './components/BinarySearchVisualizer';
 import CodeEditor from './components/CodeEditor';
+import Login from './components/Login';
+import ASTTestPanel from './components/ASTTestPanel';
 
 interface UserProfile {
   skillLevel: 'beginner' | 'intermediate' | 'advanced';
@@ -22,6 +33,11 @@ interface UserProfile {
   weaknesses: string[];
 }
 
+interface AuthUser{
+  token: string;
+}
+
+
 const initialUserProfile: UserProfile = {
   skillLevel: 'beginner',
   problemsSolved: 0,
@@ -33,7 +49,7 @@ const initialUserProfile: UserProfile = {
   lastSolveTimeSeconds: 0,
   errorPatterns: {},
   strengths: [],
-  weaknesses: []
+  weaknesses: [],
 };
 
 interface TestResult {
@@ -43,19 +59,8 @@ interface TestResult {
   actual: string;
 }
 
-interface PerformanceSample {
-  astMs: number;
-  execMs: number;
-}
 
-const tagFromError = (err: string): string => {
-  if (err.includes('SyntaxError')) return 'syntax';
-  if (err.includes('NameError')) return 'name';
-  if (err.includes('IndexError')) return 'index';
-  if (err.includes('TypeError')) return 'type';
-  if (err.toLowerCase().includes('infinite loop')) return 'infinite_loop';
-  return 'other';
-};
+
 
 const App: React.FC = () => {
   const [currentProblem, setCurrentProblem] = useState<Problem>(problemDatabase[0]);
@@ -70,45 +75,97 @@ const App: React.FC = () => {
   const [userProfile, setUserProfile] = useState<UserProfile>(initialUserProfile);
   const [activeTab, setActiveTab] = useState<'code' | 'visualization'>('code');
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
-  const [perfSamples, setPerfSamples] = useState<PerformanceSample[]>([]);
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [recommendationReason, setRecommendationReason] = useState<string>("");
+  const [isSaving, setIsSaving] = useState(false);
+  const [showASTPanel, setShowASTPanel] = useState(false);
 
-  // Load user profile, last problem and code from localStorage on first mount
+  // Check auth on mount
   useEffect(() => {
-    try {
-      const rawProfile = localStorage.getItem('skillforge:userProfile');
-      if (rawProfile) {
-        const parsed = JSON.parse(rawProfile) as Partial<UserProfile>;
-        setUserProfile(prev => ({ ...prev, ...parsed }));
-      }
-
-      const lastProblemId = localStorage.getItem('skillforge:lastProblemId');
-      if (lastProblemId) {
-        const found = problemDatabase.find(p => p.id === Number(lastProblemId));
-        if (found) {
-          setCurrentProblem(found);
-          const savedCode = localStorage.getItem(`skillforge:code:${found.id}`);
-          setCode(savedCode ?? found.starterCode);
-          return;
-        }
-      }
-    } catch {
-      // ignore malformed storage
+    const token = localStorage.getItem("skillforge:token");
+    if (token) {
+      setAuthUser({ token });
     }
+    setAuthChecked(true);
   }, []);
 
-  // Persist user profile and last problem whenever they change
+  // Load progress when authUser changes
   useEffect(() => {
+    if (!authUser) return;
+
+    const loadProgress = async () => {
+      try {
+        const res = await fetch("http://localhost:4000/progress", {
+          headers: {
+            Authorization: `Bearer ${authUser.token}`,
+          },
+        });
+
+        const data = await res.json();
+
+        if (!data) {
+          // new user
+          setCurrentProblem(problemDatabase[0]);
+          setCode(problemDatabase[0].starterCode);
+          return;
+        }
+
+        setUserProfile(data.profile);
+
+        const found = problemDatabase.find(
+          p => p.id === data.last_problem_id
+        );
+
+        if (found) {
+          setCurrentProblem(found);
+          setCode(data.last_code ?? found.starterCode);
+        }
+      } catch (err) {
+        console.error("Failed to load progress", err);
+      }
+    };
+
+    loadProgress();
+  }, [authUser]);
+
+  // Auto-save progress - Fixed to prevent infinite loops
+  const saveProgress = useCallback(async () => {
+    if (!authUser || isSaving) return;
+    
+    setIsSaving(true);
     try {
-      localStorage.setItem('skillforge:userProfile', JSON.stringify(userProfile));
-      localStorage.setItem('skillforge:lastProblemId', String(currentProblem.id));
-    } catch {
-      // ignore storage errors
+      await fetch("http://localhost:4000/progress", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authUser.token}`,
+        },
+        body: JSON.stringify({
+          profile: userProfile,
+          lastProblemId: currentProblem.id,
+          lastCode: code,
+        }),
+      });
+    } catch (err) {
+      console.error("Failed to save progress", err);
+    } finally {
+      setIsSaving(false);
     }
-  }, [userProfile, currentProblem.id]);
+  }, [authUser, userProfile, currentProblem.id, code, isSaving]);
 
   useEffect(() => {
-    const savedCode = localStorage.getItem(`skillforge:code:${currentProblem.id}`);
-    setCode(savedCode ?? currentProblem.starterCode);
+    const timeout = setTimeout(() => {
+      saveProgress();
+    }, 1000); // debounce
+
+    return () => clearTimeout(timeout);
+  }, [saveProgress]);
+
+
+  // Reset per-problem state and load problem-specific code
+  useEffect(() => {
+    setCode(currentProblem.starterCode);
     setOutput('');
     setError('');
     setHints([]);
@@ -118,17 +175,19 @@ const App: React.FC = () => {
     setSessionStartTime(Date.now());
   }, [currentProblem]);
 
+  
+
+
   const handleCodeChange = (nextCode: string) => {
     setCode(nextCode);
-    try {
-      localStorage.setItem(`skillforge:code:${currentProblem.id}`, nextCode);
-    } catch {
-      // ignore storage errors
-    }
   };
 
+  // Helper: last non-empty trimmed line
   const normalizeOutput = (out: string): string => {
-    const lines = out.split('\n').map(l => l.trim()).filter(l => l !== '');
+    const lines = out
+      .split('\n')
+      .map(l => l.trim())
+      .filter(l => l !== '');
     if (lines.length === 0) return '';
     return lines[lines.length - 1];
   };
@@ -136,24 +195,26 @@ const App: React.FC = () => {
   const analyzePythonCode = (code: string) => {
     const hints: string[] = [];
     const errors: string[] = [];
-    
+
     if (code.includes('while True:') && !code.includes('break')) {
       hints.push("⚠️ Infinite loop detected: 'while True' without a break statement.");
-      errors.push("Execution blocked: infinite loop detected.");
+      errors.push('Execution blocked: infinite loop detected.');
     }
-    
+
     if (code.includes('print(') && code.includes('return')) {
-      hints.push("💡 Consider: Are you printing the result or returning it? Functions should return values.");
+      hints.push(
+        '💡 Consider: Are you printing the result or returning it? Functions should return values.',
+      );
     }
-    
+
     if (code.match(/for\s+\w+\s+in\s+range\([^)]+\):/g)) {
-      hints.push("📚 Remember: range(n) goes from 0 to n-1, not 1 to n.");
+      hints.push('📚 Remember: range(n) goes from 0 to n-1, not 1 to n.');
     }
-    
+
     if (code.includes('=') && !code.includes('==') && code.includes('if')) {
       hints.push("⚠️ Possible error: Did you mean '==' (comparison) instead of '=' (assignment)?");
     }
-    
+
     return { hints, errors };
   };
 
@@ -167,36 +228,27 @@ const App: React.FC = () => {
       totalSubmissions: prev.totalSubmissions + 1,
     }));
 
+
     setRunning(true);
     setOutput('');
     setError('');
     setTestResults([]);
     setHints([]);
-    const t0 = performance.now();
+
     const analysis = analyzePythonCode(code);
-    const t1 = performance.now();
 
     if (analysis.errors.length > 0) {
-      const errMsg = analysis.errors.join('\n');
-      setError(errMsg);
+      setError(analysis.errors.join('\n'));
       setHints(analysis.hints);
-      setUserProfile(prev => ({
-        ...prev,
-        errorPatterns: {
-          ...prev.errorPatterns,
-          [tagFromError(errMsg)]: (prev.errorPatterns[tagFromError(errMsg)] ?? 0) + 1,
-        },
-      }));
       setRunning(false);
       return;
     }
 
     try {
-      const tExecStart = performance.now();
       const results: TestResult[] = [];
 
       if (currentProblem.functionName) {
-        // Run each test by calling the declared functionName
+        // Function-style problems: run once per test with explicit call
         for (let i = 0; i < currentProblem.testCases.length; i++) {
           const test = currentProblem.testCases[i];
           const testCode = `
@@ -204,22 +256,31 @@ ${code}
 
 print(${currentProblem.functionName}(${test.input}))
 `;
-          const res = await runPython(testCode);
-          if (res.error) {
+          try {
+            const res = await runPython(testCode);
+            if (res.error) {
+              results.push({
+                id: i,
+                passed: false,
+                expected: test.output.trim(),
+                actual: res.error,
+              });
+            } else {
+              const actual = normalizeOutput(res.output);
+              const expectedNorm = normalizeOutput(test.output);
+              results.push({
+                id: i,
+                passed: actual === expectedNorm,
+                expected: test.output.trim(),
+                actual,
+              });
+            }
+          } catch (err) {
             results.push({
               id: i,
               passed: false,
               expected: test.output.trim(),
-              actual: res.error,
-            });
-          } else {
-            const actual = normalizeOutput(res.output);
-            const expectedNorm = normalizeOutput(test.output);
-            results.push({
-              id: i,
-              passed: actual === expectedNorm,
-              expected: test.output.trim(),
-              actual,
+              actual: String(err),
             });
           }
         }
@@ -228,7 +289,7 @@ print(${currentProblem.functionName}(${test.input}))
           setOutput(last.actual);
         }
       } else {
-        // Script-style problems (e.g., Hello World)
+        // Script-style problems (e.g. Hello World)
         const res = await runPython(code);
         if (res.error) {
           setError(res.error);
@@ -251,12 +312,6 @@ print(${currentProblem.functionName}(${test.input}))
           });
         }
       }
-
-      const tExecEnd = performance.now();
-      setPerfSamples(prev => [
-        ...prev,
-        { astMs: t1 - t0, execMs: tExecEnd - tExecStart },
-      ]);
 
       setTestResults(results);
 
@@ -302,53 +357,111 @@ print(${currentProblem.functionName}(${test.input}))
         }
       }
     } catch (err) {
-      const msg = String(err);
-      setError('An error occurred while running your code: ' + msg);
-      setUserProfile(prev => ({
-        ...prev,
-        errorPatterns: {
-          ...prev.errorPatterns,
-          [tagFromError(msg)]: (prev.errorPatterns[tagFromError(msg)] ?? 0) + 1,
-        },
-      }));
+      setError('An error occurred while running your code: ' + String(err));
     }
 
     setRunning(false);
   };
 
-  // Track hints used whenever the user explicitly asks for a new hint
-
+  // Track hints used when user clicks "Get Hint"
   const getNextHint = () => {
-    const nextLevel = hintLevel + 1;
-    const availableHints = currentProblem.hints.filter(
-      h => h.scaffolding === nextLevel,
-    );
-    if (availableHints.length === 0) return;
-
-    setHintLevel(nextLevel);
-    setShowHints(true);
-    setUserProfile(prev => ({ ...prev, hintsUsed: prev.hintsUsed + 1 }));
+    if (hintLevel < currentProblem.hints.length) {
+      setHintLevel(prev => prev + 1);
+      setShowHints(true);
+      setUserProfile(prev => ({ ...prev, hintsUsed: prev.hintsUsed + 1 }));
+    }
   };
 
-  const getRecommendedProblem = () => {
-    const { problemsSolved, hintsUsed } = userProfile;
-    const avgHints = problemsSolved > 0 ? hintsUsed / problemsSolved : 0;
-    
-    let difficulty: 'easy' | 'medium' | 'hard' = 'easy';
-    if (problemsSolved > 5 && avgHints < 2) difficulty = 'medium';
-    if (problemsSolved > 10 && avgHints < 1.5) difficulty = 'hard';
-    
-    const filtered = problemDatabase.filter(p => 
-      p.difficulty === difficulty && p.id !== currentProblem.id
-    );
-    
-    return filtered[Math.floor(Math.random() * filtered.length)] || problemDatabase[0];
+
+  const getLearnerState = () => {
+  const {
+    problemsSolved,
+    hintsUsed,
+    successfulSubmissions,
+    totalSubmissions,
+    averageSolveTimeSeconds,
+  } = userProfile;
+
+  const successRate =
+    totalSubmissions > 0
+      ? successfulSubmissions / totalSubmissions
+      : 0;
+
+  const avgHintsPerProblem =
+    problemsSolved > 0 ? hintsUsed / problemsSolved : 0;
+
+  if (successRate < 0.4 || avgHintsPerProblem > 4) {
+    return "struggling";
+  }
+
+  if (successRate > 0.75 && avgHintsPerProblem < 2) {
+    return "mastery";
+  }
+
+  return "steady";
+};
+
+
+const getRecommendedProblem = () => {
+  const learnerState = getLearnerState();
+
+  let targetDifficulty: 'easy' | 'medium' | 'hard' = 'easy';
+  let reason = "";
+
+  if (learnerState === "struggling") {
+    targetDifficulty = "easy";
+    reason = "Recommended to reinforce fundamentals and reduce cognitive load.";
+  }
+
+  if (learnerState === "steady") {
+    targetDifficulty = "medium";
+    reason = "Recommended to gradually increase challenge.";
+  }
+
+  if (learnerState === "mastery") {
+    targetDifficulty = "hard";
+    reason = "Recommended to challenge mastery and promote deeper understanding.";
+  }
+
+  setRecommendationReason(reason);
+
+  const candidates = problemDatabase.filter(
+    p => p.difficulty === targetDifficulty && p.id !== currentProblem.id
+  );
+
+  return candidates[Math.floor(Math.random() * candidates.length)]
+    || problemDatabase[0];
+};
+
+// Handle login
+  const handleLogin = (token: string) => {
+    localStorage.setItem("skillforge:token", token);
+    setAuthUser({ token });
   };
+
+  // Handle logout
+  const handleLogout = () => {
+    localStorage.removeItem("skillforge:token");
+    setAuthUser(null);
+  };
+
+  // Auth gate
+  if (!authChecked) {
+    return <div className='p-6'>Loading....</div>
+  }
+
+  if (!authUser) {
+    return (
+      <Login
+        onLogin={(token: string) => {
+          localStorage.setItem("skillforge:token", token);
+          setAuthUser({ token });
+        }}
+      />
+    );
+  }
 
   return (
-
-
-    
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50">
       <header className="bg-white border-b border-gray-200 shadow-sm">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
@@ -358,18 +471,22 @@ print(${currentProblem.functionName}(${test.input}))
             </div>
             <div>
               <h1 className="text-2xl font-bold text-gray-900">SkillForge AI</h1>
-              
               <p className="text-sm text-gray-500">Adaptive Programming Education</p>
             </div>
           </div>
+          
           <div className="flex items-center gap-6">
             <div className="text-right">
               <div className="text-sm text-gray-500">Problems Solved</div>
-              <div className="text-xl font-bold text-indigo-600">{userProfile.problemsSolved}</div>
+              <div className="text-xl font-bold text-indigo-600">
+                {userProfile.problemsSolved}
+              </div>
             </div>
             <div className="text-right">
               <div className="text-sm text-gray-500">Skill Level</div>
-              <div className="text-xl font-bold text-purple-600 capitalize">{userProfile.skillLevel}</div>
+              <div className="text-xl font-bold text-purple-600 capitalize">
+                {userProfile.skillLevel}
+              </div>
             </div>
             <div className="text-right">
               <div className="text-sm text-gray-500">Success Rate</div>
@@ -377,18 +494,27 @@ print(${currentProblem.functionName}(${test.input}))
                 {userProfile.totalSubmissions > 0
                   ? Math.round(
                       (userProfile.successfulSubmissions /
-                        userProfile.totalSubmissions) * 100,
+                        userProfile.totalSubmissions) *
+                        100,
                     )
                   : 0}
                 %
               </div>
             </div>
+            {/* Logout button moved to header */}
+            <button
+              onClick={handleLogout}
+              className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+            >
+              Logout
+            </button>
           </div>
         </div>
       </header>
 
       <div className="max-w-7xl mx-auto px-6 py-6">
         <div className="grid grid-cols-12 gap-6">
+          {/* Sidebar: Problems */}
           <div className="col-span-3 space-y-4">
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
               <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
@@ -406,13 +532,19 @@ print(${currentProblem.functionName}(${test.input}))
                         : 'bg-gray-50 border border-gray-200 hover:border-indigo-300'
                     }`}
                   >
-                    <div className="font-medium text-sm text-gray-900">{problem.title}</div>
+                    <div className="font-medium text-sm text-gray-900">
+                      {problem.title}
+                    </div>
                     <div className="flex items-center gap-2 mt-1">
-                      <span className={`text-xs px-2 py-0.5 rounded ${
-                        problem.difficulty === 'easy' ? 'bg-green-100 text-green-700' :
-                        problem.difficulty === 'medium' ? 'bg-yellow-100 text-yellow-700' :
-                        'bg-red-100 text-red-700'
-                      }`}>
+                      <span
+                        className={`text-xs px-2 py-0.5 rounded ${
+                          problem.difficulty === 'easy'
+                            ? 'bg-green-100 text-green-700'
+                            : problem.difficulty === 'medium'
+                            ? 'bg-yellow-100 text-yellow-700'
+                            : 'bg-red-100 text-red-700'
+                        }`}
+                      >
                         {problem.difficulty}
                       </span>
                     </div>
@@ -428,21 +560,33 @@ print(${currentProblem.functionName}(${test.input}))
               <Zap size={18} />
               Get Recommended
             </button>
+            {recommendationReason && (
+              <p className="text-xs text-gray-600 mt-2 text-center">
+                {recommendationReason}
+              </p>
+            )}
+
           </div>
 
+          {/* Main content */}
           <div className="col-span-9 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 md:col-span-2">
-              <h2 className="text-2xl font-bold text-gray-900 mb-2">{currentProblem.title}</h2>
-              <p className="text-gray-700 mb-4">{currentProblem.description}</p>
-              <div className="flex gap-2">
-                {currentProblem.concepts.map(concept => (
-                  <span key={concept} className="text-xs bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full">
-                    {concept}
-                  </span>
-                ))}
+                <h2 className="text-2xl font-bold text-gray-900 mb-2">
+                  {currentProblem.title}
+                </h2>
+                <p className="text-gray-700 mb-4">{currentProblem.description}</p>
+                <div className="flex gap-2">
+                  {currentProblem.concepts.map(concept => (
+                    <span
+                      key={concept}
+                      className="text-xs bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full"
+                    >
+                      {concept}
+                    </span>
+                  ))}
+                </div>
               </div>
-            </div>
 
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 flex flex-col justify-between">
                 <h3 className="font-semibold text-gray-900 mb-2">Your Progress</h3>
@@ -471,24 +615,7 @@ print(${currentProblem.functionName}(${test.input}))
                     <span>Last Solve Time (s)</span>
                     <span>{userProfile.lastSolveTimeSeconds.toFixed(1)}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span>Most Common Error</span>
-                    <span>
-                      {Object.keys(userProfile.errorPatterns).length === 0
-                        ? 'none'
-                        : Object.entries(userProfile.errorPatterns).sort(
-                            (a, b) => b[1] - a[1],
-                          )[0]?.[0]}
-                    </span>
-                  </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={exportStudyData}
-                  className="mt-3 inline-flex items-center justify-center rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
-                >
-                  Download Progress (CSV)
-                </button>
               </div>
             </div>
 
@@ -529,10 +656,14 @@ print(${currentProblem.functionName}(${test.input}))
                         disabled={running}
                         className="bg-gradient-to-r from-green-600 to-emerald-600 text-white px-6 py-2 rounded-lg font-medium hover:shadow-lg transition-all disabled:opacity-50 flex items-center gap-2"
                       >
-                        {running ? <RefreshCw className="animate-spin" size={18} /> : <Play size={18} />}
+                        {running ? (
+                          <RefreshCw className="animate-spin" size={18} />
+                        ) : (
+                          <Play size={18} />
+                        )}
                         {running ? 'Running...' : 'Run Code'}
                       </button>
-                      
+
                       <button
                         onClick={getNextHint}
                         disabled={hintLevel >= currentProblem.hints.length}
@@ -541,7 +672,22 @@ print(${currentProblem.functionName}(${test.input}))
                         <Lightbulb size={18} />
                         Get Hint ({hintLevel}/{currentProblem.hints.length})
                       </button>
+
+                      {/* AST Analysis Toggle */}
+  <button
+    onClick={() => setShowASTPanel(!showASTPanel)}
+    className={`px-6 py-2 rounded-lg font-medium transition-all flex items-center gap-2 ${
+      showASTPanel 
+        ? 'bg-indigo-600 text-white' 
+        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+    }`}
+  >
+    <Code2 size={18} />
+    {showASTPanel ? 'Hide AST' : 'AST Analysis'}
+  </button>
+
                     </div>
+
 
                     {showHints && hintLevel > 0 && (
                       <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
@@ -550,21 +696,12 @@ print(${currentProblem.functionName}(${test.input}))
                           Hints
                         </h4>
                         <div className="space-y-2">
-                          {currentProblem.hints
-                            .filter(h => h.scaffolding <= hintLevel)
-                            .sort((a, b) => a.scaffolding - b.scaffolding)
-                            .map((hint, idx) => (
-                              <div
-                                key={hint.id}
-                                className="text-sm text-amber-800 flex gap-2"
-                              >
-                                <span className="font-bold">{idx + 1}.</span>
-                                <span>{hint.content}</span>
-                                <span className="ml-2 text-[11px] uppercase text-amber-600">
-                                  {hint.level}
-                                </span>
-                              </div>
-                            ))}
+                          {currentProblem.hints.slice(0, hintLevel).map((hint, idx) => (
+                            <div key={idx} className="text-sm text-amber-800 flex gap-2">
+                              <span className="font-bold">{idx + 1}.</span>
+                              <span>{hint.content}</span>
+                            </div>
+                          ))}
                         </div>
                       </div>
                     )}
@@ -572,19 +709,27 @@ print(${currentProblem.functionName}(${test.input}))
                     {output && (
                       <div className="bg-green-50 border border-green-200 rounded-lg p-4">
                         <h4 className="font-semibold text-green-900 mb-2">Output</h4>
-                        <pre className="text-sm text-green-800 whitespace-pre-wrap">{output}</pre>
+                        <pre className="text-sm text-green-800 whitespace-pre-wrap">
+                          {output}
+                        </pre>
                       </div>
                     )}
 
                     {error && (
                       <div className="bg-red-50 border border-red-200 rounded-lg p-4">
                         <h4 className="font-semibold text-red-900 mb-2">Error</h4>
-                        <pre className="text-sm text-red-800 whitespace-pre-wrap">{error}</pre>
+                        <pre className="text-sm text-red-800 whitespace-pre-wrap">
+                          {error}
+                        </pre>
                         {hints.length > 0 && (
                           <div className="mt-3 pt-3 border-t border-red-200">
-                            <p className="text-sm font-medium text-red-900 mb-2">Suggestions:</p>
+                            <p className="text-sm font-medium text-red-900 mb-2">
+                              Suggestions:
+                            </p>
                             {hints.map((hint, idx) => (
-                              <p key={idx} className="text-sm text-red-700">{hint}</p>
+                              <p key={idx} className="text-sm text-red-700">
+                                {hint}
+                              </p>
                             ))}
                           </div>
                         )}
@@ -596,7 +741,10 @@ print(${currentProblem.functionName}(${test.input}))
                         <h4 className="font-semibold text-gray-900 mb-3">Test Cases</h4>
                         <div className="space-y-2">
                           {testResults.map(result => (
-                            <div key={result.id} className="flex items-center gap-3 text-sm">
+                            <div
+                              key={result.id}
+                              className="flex items-center gap-3 text-sm"
+                            >
                               {result.passed ? (
                                 <CheckCircle className="text-green-600" size={18} />
                               ) : (
@@ -610,6 +758,8 @@ print(${currentProblem.functionName}(${test.input}))
                         </div>
                       </div>
                     )}
+
+
                   </div>
                 ) : (
                   <div className="min-h-96">
@@ -620,7 +770,10 @@ print(${currentProblem.functionName}(${test.input}))
                       <BubbleSortVisualizer initialArray="[64, 34, 25, 12, 22]" />
                     )}
                     {currentProblem.visualization === 'binarySearch' && (
-                      <BinarySearchVisualizer initialArray="[1, 3, 5, 7, 9]" initialTarget={5} />
+                      <BinarySearchVisualizer
+                        initialArray="[1, 3, 5, 7, 9]"
+                        initialTarget={5}
+                      />
                     )}
                     {!currentProblem.visualization && (
                       <div className="h-full flex items-center justify-center bg-gradient-to-br from-indigo-50 to-purple-50 rounded-lg">
