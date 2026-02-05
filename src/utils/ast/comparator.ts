@@ -197,45 +197,29 @@ export async function compareWithGoldenReference(
  * Format divergences into human-readable feedback messages.
  */
 export function formatDivergenceFeedback(divergences: Divergence[]): string[] {
-  const feedback: string[] = [];
-  
-  // Group by severity
-  const errors = divergences.filter(d => d.severity === 'error');
-  const warnings = divergences.filter(d => d.severity === 'warning');
-  const info = divergences.filter(d => d.severity === 'info');
-  
-  // Format errors first (most important)
-  for (const d of errors) {
-    let msg = `❌ ${d.message}`;
-    if (d.lineNo) {
-      msg += ` (line ${d.lineNo})`;
+  return divergences.map(d => {
+    // Translate structural errors into Pedagogical Advice
+    switch (d.type) {
+      case 'missing_node':
+        if (d.expected === 'Return') return "❌ Your function implements the logic but forgets to 'return' the result to the caller.";
+        if (d.expected === 'For' || d.expected === 'While') return "💡 Suggestion: This problem requires a loop to process multiple values.";
+        break;
+      
+      case 'semantic_violation':
+        return d.message; // Use the custom message from the Python engine
+
+      case 'type_mismatch':
+        if (d.expected === 'For' && d.found === 'While') {
+          return "📚 Pythonic Tip: While your 'while' loop works, a 'for' loop is considered better practice for this task.";
+        }
+        break;
+        
+      case 'structure_mismatch':
+        return "🔍 Your logic path differs from the standard approach. Double-check if you've handled all cases (like n < 2).";
     }
-    if (d.suggestion) {
-      msg += `\n   💡 Suggestion: ${d.suggestion}`;
-    }
-    feedback.push(msg);
-  }
-  
-  // Then warnings
-  for (const d of warnings) {
-    let msg = `⚠️ ${d.message}`;
-    if (d.lineNo) {
-      msg += ` (line ${d.lineNo})`;
-    }
-    if (d.suggestion) {
-      msg += `\n   💡 ${d.suggestion}`;
-    }
-    feedback.push(msg);
-  }
-  
-  // Info messages only if there aren't too many errors
-  if (errors.length < 3) {
-    for (const d of info.slice(0, 2)) {
-      feedback.push(`ℹ️ ${d.message}`);
-    }
-  }
-  
-  return feedback;
+    
+    return d.message; // Fallback to standard message
+  });
 }
 
 /**

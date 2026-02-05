@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from typing import List, Dict, Set, Optional, Callable, Any
 from enum import Enum, auto
 import re
+from collections import defaultdict
+
 
 class Severity(Enum):
     """Severity levels for anti-patterns"""
@@ -51,17 +53,18 @@ class AntiPatternDetector(ABC):
         pass
     
     def create_match(self, node: ast.AST, message: str, 
-                     suggestion: Optional[str] = None) -> AntiPatternMatch:
-        """Helper to create a match result"""
+                     suggestion: Optional[str] = None,
+                     severity: Optional[Severity] = None) -> AntiPatternMatch:
+        """Helper to create a match result with optional severity override"""
         return AntiPatternMatch(
             pattern_id=self.pattern_id,
             name=self.name,
             category=self.category,
-            severity=self.severity,
+            severity=severity if severity is not None else self.severity,
             message=message,
             line_number=getattr(node, 'lineno', None),
             suggestion=suggestion,
-            code_snippet=None  # Could extract from source
+            code_snippet=None
         )
 
 class AnalysisContext:
@@ -533,23 +536,49 @@ class HardcodedValuesDetector(AntiPatternDetector):
         self.pattern_id = "LOG001"
         self.name = "Hardcoded Magic Numbers"
         self.category = PatternCategory.LOGIC
-        self.severity = Severity.WARNING
+        self.severity = Severity.ERROR  # Changed to ERROR for hardcoding
         self.magic_numbers = {0, 1, 2}  # These are usually OK
+        self.common_test_answers = {15, 120, 55, 42, 100, 1000, 1024, 255, 256}
     
     def detect(self, node: ast.AST, context: AnalysisContext) -> Optional[AntiPatternMatch]:
         if not isinstance(node, ast.Constant):
             return None
         
         if isinstance(node.value, (int, float)):
-            if node.value not in self.magic_numbers and abs(node.value) > 10:
-                # Check context - is it in a comparison or calculation?
-                parent = getattr(node, 'parent', None)
-                if isinstance(parent, (ast.BinOp, ast.Compare, ast.Call)):
-                    return self.create_match(
-                        node,
-                        f"Magic number {node.value} detected - consider making it a constant",
-                        f"Define a constant: MAX_SIZE = {node.value}"
-                    )
+            val = node.value
+            
+            # Skip common iteration values
+            if val in self.magic_numbers:
+                return None
+            
+            # Check if it's in a return statement (likely hardcoding answer)
+            parent = getattr(node, 'parent', None)
+            grandparent = getattr(parent, 'parent', None) if parent else None
+            
+            is_in_return = isinstance(parent, ast.Return) or isinstance(grandparent, ast.Return)
+            
+            # Detect likely test case hardcoding
+            if is_in_return and val in self.common_test_answers:
+                return self.create_match(
+                    node,
+                    f"Hardcoded answer {val} detected - did you just return the test case answer?",
+                    "Implement the actual logic with a loop or formula instead of hardcoding",
+                    severity=Severity.CRITICAL
+                )
+            
+            # General magic number detection
+            if abs(val) > 10 and isinstance(parent, (ast.BinOp, ast.Compare, ast.Call)):
+                # Check if it's part of a range() call (often legitimate)
+                if isinstance(parent, ast.Call):
+                    return None
+                    
+                return self.create_match(
+                    node,
+                    f"Magic number {val} detected - consider making it a parameter or constant",
+                    f"Define a constant: TARGET_SUM = {val} or use a function parameter",
+                    severity=Severity.WARNING
+                )
+        
         return None
 
 class UnreachableCodeDetector(AntiPatternDetector):
@@ -648,6 +677,7 @@ class IdentityVsEqualityDetector(AntiPatternDetector):
         return None
 
 class ChainedComparisonDetector(AntiPatternDetector):
+
     """Detect verbose comparisons that could be chained"""
     
     def __init__(self):
@@ -674,6 +704,127 @@ class ChainedComparisonDetector(AntiPatternDetector):
                         "Use chained comparison for clarity"
                     )
         return None
+
+class MissingLoopDetector(AntiPatternDetector):
+    """Detect when loops are expected but missing"""
+    
+    def __init__(self):
+        super().__init__()
+        self.pattern_id = "STRUCT001"
+        self.name = "Missing Loop Structure"
+        self.category = PatternCategory.LOGIC
+        self.severity = Severity.ERROR
+    
+    def detect(self, node: ast.AST, context: AnalysisContext) -> Optional[AntiPatternMatch]:
+        # Only check at module level or function level
+        if not isinstance(node, (ast.Module, ast.FunctionDef)):
+            return None
+            
+        # Look for range() calls without for loops
+        has_range = any(
+            isinstance(n, ast.Call) and 
+            isinstance(n.func, ast.Name) and 
+            n.func.id == 'range'
+            for n in ast.walk(node)
+        )
+        
+        has_for_loop = any(
+            isinstance(n, ast.For) 
+            for n in ast.walk(node)
+        )
+        
+        has_while_loop = any(
+            isinstance(n, ast.While) 
+            for n in ast.walk(node)
+        )
+        
+        # If range is used but not in a for loop, likely manual iteration
+        if has_range and not has_for_loop and not has_while_loop:
+            return self.create_match(
+                node,
+                "You have a range() but no loop to iterate over it",
+                "Use a for loop: for i in range(n):",
+                severity=Severity.ERROR
+            )
+        
+        return None
+
+class MissingReturnDetector(AntiPatternDetector):
+    """Detect functions that define logic but don't return"""
+    
+    def __init__(self):
+        super().__init__()
+        self.pattern_id = "STRUCT002"
+        self.name = "Missing Return Statement"
+        self.category = PatternCategory.LOGIC
+        self.severity = Severity.ERROR
+    
+    def detect(self, node: ast.AST, context: AnalysisContext) -> Optional[AntiPatternMatch]:
+        if not isinstance(node, ast.FunctionDef):
+            return None
+            
+        # Check if function has any logic
+        has_logic = any(
+            isinstance(n, (ast.For, ast.While, ast.If, ast.BinOp, ast.Call))
+            for n in ast.walk(node)
+        )
+        
+        has_return = any(
+            isinstance(n, ast.Return) and n.value is not None
+            for n in ast.walk(node)
+        )
+        
+        # Has logic but no return
+        if has_logic and not has_return:
+            return self.create_match(
+                node,
+                f"Function '{node.name}' performs calculations but doesn't return anything",
+                "Add a return statement with your computed result",
+                severity=Severity.ERROR
+            )
+        
+        return None
+
+class WrongLoopTypeDetector(AntiPatternDetector):
+    """Suggest for loops over while loops for iteration"""
+    
+    def __init__(self):
+        super().__init__()
+        self.pattern_id = "STRUCT003"
+        self.name = "Suboptimal Loop Type"
+        self.category = PatternCategory.CONTROL_FLOW
+        self.severity = Severity.INFO
+    
+    def detect(self, node: ast.AST, context: AnalysisContext) -> Optional[AntiPatternMatch]:
+        if not isinstance(node, ast.While):
+            return None
+            
+        # Check for simple counter pattern that should be for loop
+        body = node.body
+        if len(body) >= 2:
+            last_stmt = body[-1]
+            if isinstance(last_stmt, ast.AugAssign):
+                if isinstance(last_stmt.op, ast.Add):
+                    if isinstance(last_stmt.value, ast.Constant) and last_stmt.value.value == 1:
+                        return self.create_match(
+                            node,
+                            "Manual counter with while loop - consider using for loop with range()",
+                            "Use: for i in range(n): - it's more Pythonic and less error-prone",
+                            severity=Severity.INFO
+                        )
+        
+        # Check for range() bounds that could be for loop
+        if isinstance(node.test, ast.Compare):
+            if any(isinstance(op, (ast.Lt, ast.LtE, ast.Gt, ast.GtE)) for op in node.test.ops):
+                return self.create_match(
+                    node,
+                    "While loop with range comparison detected",
+                    "Consider: for i in range(start, end): for clearer iteration",
+                    severity=Severity.INFO
+                )
+        
+        return None
+    
 
 # ============================================
 # EFFICIENCY ANTI-PATTERNS
@@ -1028,6 +1179,188 @@ class TooDeepNestingDetector(AntiPatternDetector):
             )
         return None
 
+
+@dataclass
+class ComplexityMetrics:
+    """Store complexity metrics for a function"""
+    function_name: str
+    cyclomatic_complexity: int
+    nesting_depth: int
+    line_count: int
+    score: str  # 'low', 'moderate', 'high', 'very_high'
+
+class CyclomaticComplexityDetector(AntiPatternDetector):
+    """
+    Calculate McCabe Cyclomatic Complexity for functions.
+    CC = Number of decision points + 1
+    
+    Thresholds based on SEI/Carnegie Mellon standards:
+    1-10: Simple, low risk
+    11-20: Moderate risk  
+    21-50: High risk, complex
+    >50: Very high risk, untestable
+    """
+    
+    def __init__(self):
+        super().__init__()
+        self.pattern_id = "COMPLEX001"
+        self.name = "Cyclomatic Complexity"
+        self.category = PatternCategory.LOGIC
+        self.severity = Severity.INFO
+        self.metrics: List[ComplexityMetrics] = []
+        
+        # Decision points that increase complexity
+        self.decision_nodes = (
+            ast.If, ast.While, ast.For, ast.ExceptHandler,
+            ast.With, ast.Assert, ast.comprehension
+        )
+        self.boolean_ops = (ast.And, ast.Or)
+    
+    def calculate_complexity(self, node: ast.FunctionDef) -> int:
+        """Calculate McCabe complexity for a function"""
+        complexity = 1  # Base complexity
+        
+        for child in ast.walk(node):
+            # Count decision points
+            if isinstance(child, ast.If):
+                complexity += 1
+                # elif adds another decision
+                # (handled by separate If nodes in orelse)
+            elif isinstance(child, (ast.While, ast.For)):
+                complexity += 1
+            elif isinstance(child, ast.ExceptHandler):
+                complexity += 1
+            elif isinstance(child, ast.With):
+                complexity += 1
+            elif isinstance(child, ast.Assert):
+                complexity += 1
+            elif isinstance(child, ast.comprehension):
+                complexity += 1
+            
+            # Boolean operators add decisions
+            elif isinstance(child, ast.BoolOp):
+                # Each 'and' or 'or' adds complexity
+                complexity += len(child.values) - 1
+            
+            # Conditional expressions
+            elif isinstance(child, ast.IfExp):
+                complexity += 1
+        
+        return complexity
+    
+    def calculate_nesting_depth(self, node: ast.FunctionDef) -> int:
+        """Calculate maximum nesting depth in function"""
+        max_depth = 0
+        current_depth = 0
+        
+        for child in ast.walk(node):
+            if isinstance(child, (ast.If, ast.For, ast.While, ast.Try, ast.With)):
+                # Count nesting by checking parent chain
+                depth = 0
+                current = child
+                while current:
+                    if isinstance(current, (ast.If, ast.For, ast.While, ast.Try, ast.With)):
+                        depth += 1
+                    current = getattr(current, 'parent', None)
+                max_depth = max(max_depth, depth)
+        
+        return max_depth
+    
+    def get_complexity_score(self, cc: int) -> str:
+        """Categorize complexity score"""
+        if cc <= 10:
+            return 'low'
+        elif cc <= 20:
+            return 'moderate'
+        elif cc <= 50:
+            return 'high'
+        else:
+            return 'very_high'
+    
+    def get_severity_for_score(self, score: str) -> Severity:
+        """Map score to severity"""
+        return {
+            'low': Severity.INFO,
+            'moderate': Severity.WARNING,
+            'high': Severity.ERROR,
+            'very_high': Severity.CRITICAL
+        }.get(score, Severity.INFO)
+    
+    def detect(self, node: ast.AST, context: AnalysisContext) -> Optional[AntiPatternMatch]:
+        if not isinstance(node, ast.FunctionDef):
+            return None
+        
+        cc = self.calculate_complexity(node)
+        depth = self.calculate_nesting_depth(node)
+        score = self.get_complexity_score(cc)
+        
+        # Store metrics for reporting
+        self.metrics.append(ComplexityMetrics(
+            function_name=node.name,
+            cyclomatic_complexity=cc,
+            nesting_depth=depth,
+            line_count=len(node.body),
+            score=score
+        ))
+        
+        # Only report if moderate or higher
+        if score == 'low':
+            return None
+        
+        severity = self.get_severity_for_score(score)
+        
+        messages = {
+            'moderate': (
+                f"Function '{node.name}' has moderate complexity (CC={cc})",
+                "Consider breaking this into smaller functions"
+            ),
+            'high': (
+                f"Function '{node.name}' is highly complex (CC={cc}) - hard to maintain",
+                "Refactor: extract helper functions or reduce nested conditions"
+            ),
+            'very_high': (
+                f"Function '{node.name}' is extremely complex (CC={cc}) - untestable!",
+                "CRITICAL: Split this function immediately - it has too many paths"
+            )
+        }
+        
+        msg, suggestion = messages.get(score, ("", ""))
+        
+        # Add nesting info if deep
+        if depth > 3:
+            msg += f" | Nesting depth: {depth} levels"
+            suggestion += f" | Reduce nesting by extracting inner blocks (currently {depth} levels deep)"
+        
+        return self.create_match(
+            node,
+            msg,
+            suggestion,
+            severity=severity
+        )
+    
+    def get_metrics_report(self) -> Dict[str, Any]:
+        """Generate overall complexity report"""
+        if not self.metrics:
+            return {}
+        
+        avg_cc = sum(m.cyclomatic_complexity for m in self.metrics) / len(self.metrics)
+        max_cc = max(m.cyclomatic_complexity for m in self.metrics)
+        
+        return {
+            'average_complexity': round(avg_cc, 2),
+            'max_complexity': max_cc,
+            'functions_analyzed': len(self.metrics),
+            'high_risk_functions': [m.function_name for m in self.metrics if m.score in ('high', 'very_high')],
+            'metrics': [
+                {
+                    'function': m.function_name,
+                    'cc': m.cyclomatic_complexity,
+                    'depth': m.nesting_depth,
+                    'score': m.score
+                }
+                for m in self.metrics
+            ]
+        }
 # ============================================
 # MAIN ANALYZER
 # ============================================
@@ -1055,6 +1388,7 @@ class HintCollector(ast.NodeVisitor):
             NestedLoopBreakDetector(),
             RedundantElseAfterReturn(),
             BooleanComparisonDetector(),
+            WrongLoopTypeDetector(),
         ])
         
         # Variables
@@ -1086,6 +1420,8 @@ class HintCollector(ast.NodeVisitor):
             DuplicateConditionDetector(),
             IdentityVsEqualityDetector(),
             ChainedComparisonDetector(),
+            MissingLoopDetector(),      
+            MissingReturnDetector(), 
         ])
         
         # Efficiency
@@ -1112,6 +1448,8 @@ class HintCollector(ast.NodeVisitor):
             InconsistentNamingDetector(),
             TooDeepNestingDetector(),
         ])
+        self.complexity_detector = CyclomaticComplexityDetector()
+        self.detectors.append(self.complexity_detector)
     
     def _set_parents(self, node: ast.AST, parent: Optional[ast.AST] = None):
         """Set parent references for all nodes"""
@@ -1223,15 +1561,22 @@ def analyze_code(source_code: str) -> Dict[str, Any]:
         # Get summary from collector
         summary = collector.get_summary()
         
+        # Get complexity metrics if available
+        complexity_report = {}
+        for detector in collector.detectors:
+            if isinstance(detector, CyclomaticComplexityDetector):
+                complexity_report = detector.get_metrics_report()
+                break
+        
         return {
             "success": True,
             "hints": collector.get_hints(),
             "structured": collector.get_structured_results(),
             "summary": {
                 "total_issues": summary["total_issues"],
-                # Convert Enum counts to string keys for JS safety
                 "by_severity": summary["by_severity"],
-                "by_category": summary["by_category"]
+                "by_category": summary["by_category"],
+                "complexity": complexity_report  # NEW
             },
             "raw_matches": [
                 {
@@ -1253,7 +1598,8 @@ def analyze_code(source_code: str) -> Dict[str, Any]:
             "error": f"Syntax error: {e.msg} at line {e.lineno}",
             "hints": [f"🚨 Syntax error: {e.msg} (line {e.lineno})"],
             "structured": [],
-            "summary": {}
+            "summary": {},
+            "complexity": {}
         }
 
 

@@ -9,30 +9,24 @@ const router = express.Router();
  * REGISTER
  */
 router.post("/register", async (req, res) => {
-  const { email, password } = req.body;
+  const { email, password, skillLevel } = req.body; // Added skillLevel
 
   if (!email || !password) {
     return res.status(400).json({ message: "Email and password required" });
   }
 
   try {
-    // Check if user already exists
-    const existingUser = await pool.query(
-      "SELECT id FROM users WHERE email = $1",
-      [email]
-    );
-
-    if ((existingUser.rowCount ?? 0) > 0){
+    const existingUser = await pool.query("SELECT id FROM users WHERE email = $1", [email]);
+    if ((existingUser.rowCount ?? 0) > 0) {
       return res.status(409).json({ message: "User already exists" });
     }
 
-    // Hash password
     const passwordHash = await bcrypt.hash(password, 10);
 
-    // Insert user
+    // Save user with their assessed skill level
     const result = await pool.query(
-      "INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id",
-      [email, passwordHash]
+      "INSERT INTO users (email, password_hash, skill_level) VALUES ($1, $2, $3) RETURNING id",
+      [email, passwordHash, skillLevel || 'beginner']
     );
 
     res.status(201).json({ message: "User registered successfully" });

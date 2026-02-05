@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useASTComparison } from '../hooks/useASTComparison';
-import { Eye, CheckCircle, XCircle, Activity, Code2 } from 'lucide-react';
+import { Eye, CheckCircle, XCircle, Activity, Code2, AlertTriangle } from 'lucide-react';
 
 interface Props {
   problemId: number;
@@ -10,10 +10,14 @@ interface Props {
 export default function ASTTestPanel({ problemId, studentCode }: Props) {
   const { compare, result, feedback, summary, isComparing, error, clear } = useASTComparison();
   const [showDetails, setShowDetails] = useState(false);
+  const [showComplexity, setShowComplexity] = useState(false);
 
   const handleCompare = () => {
     compare(problemId, studentCode);
   };
+
+  // Extract complexity from result if available
+  const complexity = result?.stats?.complexity || null;
 
   if (error) {
     return (
@@ -91,6 +95,62 @@ export default function ASTTestPanel({ problemId, studentCode }: Props) {
             </div>
           </div>
 
+          {/* Complexity Metrics for Advanced Users */}
+          {complexity && complexity.functions_analyzed > 0 && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+              <button
+                onClick={() => setShowComplexity(!showComplexity)}
+                className="flex items-center justify-between w-full"
+              >
+                <div className="flex items-center gap-2 text-blue-800 font-semibold">
+                  <AlertTriangle size={18} />
+                  <span>Complexity Analysis</span>
+                </div>
+                <span className="text-xs text-blue-600">
+                  {showComplexity ? 'Hide' : 'Show'}
+                </span>
+              </button>
+              
+              {showComplexity && (
+                <div className="mt-3 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Average CC:</span>
+                    <span className={`font-mono font-bold ${
+                      complexity.average_complexity <= 10 ? 'text-green-600' :
+                      complexity.average_complexity <= 20 ? 'text-amber-600' : 'text-red-600'
+                    }`}>
+                      {complexity.average_complexity}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Max CC:</span>
+                    <span className={`font-mono font-bold ${
+                      complexity.max_complexity <= 10 ? 'text-green-600' :
+                      complexity.max_complexity <= 20 ? 'text-amber-600' : 'text-red-600'
+                    }`}>
+                      {complexity.max_complexity}
+                    </span>
+                  </div>
+                  
+                  {complexity.high_risk_functions.length > 0 && (
+                    <div className="mt-2 p-2 bg-red-100 rounded text-xs text-red-700">
+                      <strong>High Risk Functions:</strong>
+                      <ul className="mt-1 space-y-1">
+                        {complexity.high_risk_functions.map((fn: string) => (
+                          <li key={fn}>• {fn}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  
+                  <div className="text-xs text-gray-500 mt-2">
+                    CC (Cyclomatic Complexity): 1-10 Simple, 11-20 Moderate, 21-50 High, 50+ Very High
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Feedback Messages */}
           {feedback.length > 0 && (
             <div className="space-y-2">
@@ -98,7 +158,11 @@ export default function ASTTestPanel({ problemId, studentCode }: Props) {
               {feedback.map((msg, idx) => (
                 <div 
                   key={idx}
-                  className="text-sm text-gray-700 p-2 bg-gray-50 rounded border border-gray-100"
+                  className={`text-sm p-2 rounded border ${
+                    msg.includes('❌') || msg.includes('🚨') ? 'bg-red-50 border-red-200 text-red-700' :
+                    msg.includes('⚠️') ? 'bg-amber-50 border-amber-200 text-amber-700' :
+                    'bg-gray-50 border-gray-100 text-gray-700'
+                  }`}
                 >
                   {msg}
                 </div>
@@ -125,6 +189,7 @@ export default function ASTTestPanel({ problemId, studentCode }: Props) {
                   matchedNodes: result.stats.matchedNodes,
                   studentDepth: result.stats.studentDepth,
                   referenceDepth: result.stats.referenceDepth,
+                  complexity: complexity,
                   divergences: result.divergences.map(d => ({
                     type: d.type,
                     severity: d.severity,

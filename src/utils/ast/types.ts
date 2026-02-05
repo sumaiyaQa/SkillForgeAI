@@ -164,6 +164,23 @@ export interface FlexibilityRules {
 }
 
 // ============================================================================
+// Complexity Metrics (NEW - for Goal 4)
+// ============================================================================
+
+export interface ComplexityMetrics {
+  average_complexity: number;
+  max_complexity: number;
+  functions_analyzed: number;
+  high_risk_functions: string[];
+  metrics: Array<{
+    function: string;
+    cc: number;
+    depth: number;
+    score: 'low' | 'moderate' | 'high' | 'very_high';
+  }>;
+}
+
+// ============================================================================
 // Comparison Result Types
 // ============================================================================
 
@@ -197,6 +214,10 @@ export interface Divergence {
   suggestion?: string;
 }
 
+// ============================================================================
+// SINGLE DECLARATION of ASTComparisonResult with complexity included
+// ============================================================================
+
 export interface ASTComparisonResult {
   /** Did the student code match the golden reference structure? */
   matches: boolean;
@@ -216,6 +237,7 @@ export interface ASTComparisonResult {
     matchedNodes: number;
     studentDepth: number;
     referenceDepth: number;
+    complexity?: ComplexityMetrics; // NEW: Optional complexity metrics
   };
 }
 
