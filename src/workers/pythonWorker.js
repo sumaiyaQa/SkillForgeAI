@@ -12,8 +12,45 @@ let pyodide = null;
    ========================================================= */
 
 const ANALYZER_SOURCE = `
-from astHints import analyze_code
+import ast
+
+def analyze_code(source_code):
+    hints = []
+    raw_matches = []
+
+    try:
+        tree = ast.parse(source_code)
+
+        # Simple infinite loop detection (exam-safe)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.While):
+                if isinstance(node.test, ast.Constant) and node.test.value is True:
+                    has_break = any(isinstance(n, ast.Break) for n in ast.walk(node))
+                    if not has_break:
+                        raw_matches.append({
+                            "severity": "CRITICAL",
+                            "message": "Infinite loop detected"
+                        })
+                        hints.append(
+                            "🚨 This while loop has no exit condition. Add a break or use a condition."
+                        )
+
+        return {
+            "hints": hints,
+            "summary": {
+                "total_issues": len(raw_matches)
+            },
+            "raw_matches": raw_matches
+        }
+
+    except SyntaxError as e:
+        return {
+            "hints": [f"🚨 Syntax error: {e.msg} (line {e.lineno})"],
+            "summary": {},
+            "raw_matches": []
+        }
 `;
+
 
 /* =========================================================
    Initialise Pyodide (runs once)
