@@ -90,7 +90,7 @@ const App: React.FC = () => {
   // const [testResults, setTestResults] = useState<TestResult[]>([]);
   const [activeTab, setActiveTab] = useState<'code' | 'visualization'>('code');
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
-  const [recommendationReason, setRecommendationReason] = useState<string>("");
+  // const [recommendationReason, setRecommendationReason] = useState<string>("");
   const [isSaving, setIsSaving] = useState(false);
   // const [showASTPanel, setShowASTPanel] = useState(false);
 
@@ -255,12 +255,12 @@ const App: React.FC = () => {
   //   }
   // };
 
-  const getLearnerState = () => {
-    const rate = userProfile.totalSubmissions > 0 ? userProfile.successfulSubmissions / userProfile.totalSubmissions : 0;
-    if (rate < 0.4) return "struggling";
-    if (rate > 0.8) return "mastery";
-    return "steady";
-  };
+  // const getLearnerState = () => {
+  //   const rate = userProfile.totalSubmissions > 0 ? userProfile.successfulSubmissions / userProfile.totalSubmissions : 0;
+  //   if (rate < 0.4) return "struggling";
+  //   if (rate > 0.8) return "mastery";
+  //   return "steady";
+  // };
 
   const handleLogout = () => {
     localStorage.removeItem("skillforge:token");
@@ -413,7 +413,10 @@ const App: React.FC = () => {
                 </div>
               </div>
 
-              <div className="bg-indigo-900 rounded-xl p-4 text-white flex justify-between items-center shadow-lg">
+
+
+
+              {/* <div className="bg-indigo-900 rounded-xl p-4 text-white flex justify-between items-center shadow-lg">
                 <div className="flex items-center gap-4">
                   <div className="p-2 bg-white/10 rounded-lg"><Zap size={20} className="text-amber-400" /></div>
                   <div>
@@ -421,8 +424,8 @@ const App: React.FC = () => {
                     <div className="text-sm font-black uppercase tracking-widest">{getLearnerState()}</div>
                   </div>
                 </div>
-                <button onClick={() => setCurrentProblem(filteredProblems[0])} className="bg-white text-indigo-900 px-6 py-2 rounded-lg font-black text-xs uppercase hover:bg-indigo-100 transition-all">Next Problem</button>
-              </div>
+<button onClick={() => setCurrentProblem(filteredProblems[0])}>
+              </div> */}
             </div>
           </main>
         </>
