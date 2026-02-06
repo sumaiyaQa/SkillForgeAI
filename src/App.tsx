@@ -327,7 +327,7 @@ const App: React.FC = () => {
                   ))}
                 </div>
               </div>
-              <button onClick={() => setCurrentProblem(problemDatabase[Math.floor(Math.random() * problemDatabase.length)])} className="w-full bg-indigo-600 text-white p-4 rounded-xl font-bold text-sm shadow-md hover:bg-indigo-700 flex items-center justify-center gap-2">
+              <button onClick={() => setCurrentProblem(filteredProblems[0])}>
                 <Zap size={16} /> ADAPTIVE CHOICE
               </button>
             </div>
