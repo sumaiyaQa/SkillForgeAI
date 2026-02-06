@@ -21,7 +21,9 @@ def analyze_code(source_code):
     try:
         tree = ast.parse(source_code)
 
-        # Simple infinite loop detection (exam-safe)
+        # ----------------------------------------
+        # RULE 1: Infinite while True loop (CRITICAL)
+        # ----------------------------------------
         for node in ast.walk(tree):
             if isinstance(node, ast.While):
                 if isinstance(node.test, ast.Constant) and node.test.value is True:
@@ -29,27 +31,73 @@ def analyze_code(source_code):
                     if not has_break:
                         raw_matches.append({
                             "severity": "CRITICAL",
-                            "message": "Infinite loop detected"
+                            "type": "infinite_loop"
                         })
                         hints.append(
-                            "🚨 This while loop has no exit condition. Add a break or use a condition."
+                            "🚨 This while loop has no exit condition. "
+                            "Add a break statement or use a conditional loop."
                         )
+
+        # ----------------------------------------
+        # RULE 2: Function prints instead of returns
+        # ----------------------------------------
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef):
+                has_return = any(isinstance(n, ast.Return) for n in ast.walk(node))
+                has_print = any(
+                    isinstance(n, ast.Call) and getattr(n.func, "id", None) == "print"
+                    for n in ast.walk(node)
+                )
+                if has_print and not has_return:
+                    hints.append(
+                        f"💡 Function '{node.name}' prints a value but does not return it. "
+                        "Tests usually expect a return value."
+                    )
+
+        # ----------------------------------------
+        # RULE 3: Hard-coded return value
+        # ----------------------------------------
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Return) and isinstance(node.value, ast.Constant):
+                hints.append(
+                    "🚨 A constant value is returned. "
+                    "Make sure your solution works for all possible inputs."
+                )
+
+        # ----------------------------------------
+        # RULE 4: No output produced
+        # ----------------------------------------
+        has_print = any(
+            isinstance(n, ast.Call) and getattr(n.func, "id", None) == "print"
+            for n in ast.walk(tree)
+        )
+
+        if not has_print:
+            hints.append(
+                "💡 Your program runs but does not display any output. "
+                "Use print() to show results."
+            )
 
         return {
             "hints": hints,
             "summary": {
-                "total_issues": len(raw_matches)
+                "total_issues": len(hints)
             },
             "raw_matches": raw_matches
         }
 
     except SyntaxError as e:
         return {
-            "hints": [f"🚨 Syntax error: {e.msg} (line {e.lineno})"],
-            "summary": {},
+            "hints": [
+                f"🚨 Syntax error on line {e.lineno}: {e.msg}"
+            ],
+            "summary": {
+                "total_issues": 1
+            },
             "raw_matches": []
         }
 `;
+
 
 
 /* =========================================================
