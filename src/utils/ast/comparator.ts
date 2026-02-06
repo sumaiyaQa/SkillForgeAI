@@ -23,6 +23,16 @@ interface ProblemWithReferenceResult {
   reference: GoldenReferencePattern;
 }
 
+type WorkerDivergence = Divergence & {
+  student_path?: string;
+  reference_path?: string;
+  line_no?: number;
+};
+
+type WorkerASTComparisonResult = Omit<ASTComparisonResult, 'divergences'> & {
+  divergences: WorkerDivergence[];
+};
+
 // Worker instance (reused across calls)
 let worker: Worker | null = null;
 
@@ -34,6 +44,22 @@ function getWorker(): Worker {
     );
   }
   return worker;
+}
+
+function normalizeDivergence(divergence: WorkerDivergence): Divergence {
+  return {
+    ...divergence,
+    studentPath: divergence.studentPath ?? divergence.student_path ?? '',
+    referencePath: divergence.referencePath ?? divergence.reference_path,
+    lineNo: divergence.lineNo ?? divergence.line_no,
+  };
+}
+
+function normalizeComparisonResult(result: WorkerASTComparisonResult): ASTComparisonResult {
+  return {
+    ...result,
+    divergences: result.divergences.map(normalizeDivergence),
+  };
 }
 
 /**
@@ -53,7 +79,7 @@ export function compareAST(
         w.removeEventListener('message', handler);
         
         if (event.data.success) {
-          resolve(event.data.result);
+          resolve(normalizeComparisonResult(event.data.result));
         } else {
           reject(new Error(event.data.error || 'AST comparison failed'));
         }
