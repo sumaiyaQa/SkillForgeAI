@@ -6,8 +6,8 @@ import {
   Eye,
   Code2,
   Lightbulb,
-  CheckCircle,
-  XCircle,
+  // CheckCircle,
+  // XCircle,
   Zap,
   Download
 } from 'lucide-react';
@@ -19,7 +19,7 @@ import BubbleSortVisualizer from './components/BubbleSortVisualizer';
 import BinarySearchVisualizer from './components/BinarySearchVisualizer';
 import CodeEditor from './components/CodeEditor';
 import Login from './components/Login';
-import ASTTestPanel from './components/ASTTestPanel';
+// import ASTTestPanel from './components/ASTTestPanel';
 import AdminDashboard from './components/AdminDashboard';
 import SUSSurvey from './components/SUSSurvey';
 
@@ -41,12 +41,12 @@ interface AuthUser {
   token: string;
 }
 
-interface TestResult {
-  id: number;
-  passed: boolean;
-  expected: string;
-  actual: string;
-}
+// interface TestResult {
+//   id: number;
+//   passed: boolean;
+//   expected: string;
+//   actual: string;
+// }
 
 const initialUserProfile: UserProfile = {
   skillLevel: 'beginner',
@@ -87,12 +87,12 @@ const App: React.FC = () => {
   const [showHints, setShowHints] = useState<boolean>(false);
   const [hintLevel, setHintLevel] = useState<number>(0);
   const [running, setRunning] = useState<boolean>(false);
-  const [testResults, setTestResults] = useState<TestResult[]>([]);
+  // const [testResults, setTestResults] = useState<TestResult[]>([]);
   const [activeTab, setActiveTab] = useState<'code' | 'visualization'>('code');
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
   const [recommendationReason, setRecommendationReason] = useState<string>("");
   const [isSaving, setIsSaving] = useState(false);
-  const [showASTPanel, setShowASTPanel] = useState(false);
+  // const [showASTPanel, setShowASTPanel] = useState(false);
 
   // Check auth on mount
   useEffect(() => {
@@ -191,57 +191,57 @@ const App: React.FC = () => {
     setHints([]);
     setShowHints(false);
     setHintLevel(0);
-    setTestResults([]);
+    // setTestResults([]);
     setSessionStartTime(Date.now());
   }, [currentProblem]);
 
-  const normalizeOutput = (out: string): string => {
-    const lines = out.split('\n').map(l => l.trim()).filter(l => l !== '');
-    return lines.length === 0 ? '' : lines[lines.length - 1];
-  };
+  // const normalizeOutput = (out: string): string => {
+  //   const lines = out.split('\n').map(l => l.trim()).filter(l => l !== '');
+  //   return lines.length === 0 ? '' : lines[lines.length - 1];
+  // };
 
   const handleRunCode = async () => {
-    if (!sessionStartTime) setSessionStartTime(Date.now());
-    setUserProfile(prev => ({ ...prev, totalSubmissions: prev.totalSubmissions + 1 }));
-    setRunning(true);
-    setOutput('');
-    setError('');
-    
-    try {
-      const results: TestResult[] = [];
-      for (let i = 0; i < currentProblem.testCases.length; i++) {
-        const test = currentProblem.testCases[i];
-        const testCode = currentProblem.functionName 
-          ? `${code}\n\nprint(${currentProblem.functionName}(${test.input}))`
-          : code;
-        
-        const res = await runPython(testCode);
-        const actual = res.error ? res.error : normalizeOutput(res.output);
-        const expectedNorm = normalizeOutput(test.output);
-        
-        results.push({ id: i, passed: actual === expectedNorm, expected: test.output.trim(), actual });
-      }
+  if (!sessionStartTime) setSessionStartTime(Date.now());
 
-      setTestResults(results);
-      if (results.every(r => r.passed)) {
-        setOutput('✅ All test cases passed!');
-        const solveTime = (Date.now() - sessionStartTime!) / 1000;
-        setUserProfile(prev => ({
-          ...prev,
-          problemsSolved: prev.problemsSolved + 1,
-          successfulSubmissions: prev.successfulSubmissions + 1,
-          lastSolveTimeSeconds: solveTime,
-          totalSolveTimeSeconds: prev.totalSolveTimeSeconds + solveTime,
-          averageSolveTimeSeconds: (prev.totalSolveTimeSeconds + solveTime) / (prev.problemsSolved + 1)
-        }));
-      } else {
-        setError('Some test cases failed.');
-      }
-    } catch (err) {
-      setError('Runtime Error: ' + String(err));
+  setUserProfile(prev => ({
+    ...prev,
+    totalSubmissions: prev.totalSubmissions + 1
+  }));
+
+  setRunning(true);
+  setOutput('');
+  setError('');
+  setHints([]);
+
+  try {
+    const res = await runPython(code);
+
+    setOutput(res.output || '');
+    setError(res.error || '');
+    setHints(res.hints || []);
+
+    // If code ran successfully and produced output, count as a successful attempt
+    if (!res.error) {
+      const solveTime = (Date.now() - sessionStartTime!) / 1000;
+
+      setUserProfile(prev => ({
+        ...prev,
+        successfulSubmissions: prev.successfulSubmissions + 1,
+        lastSolveTimeSeconds: solveTime,
+        totalSolveTimeSeconds: prev.totalSolveTimeSeconds + solveTime,
+        averageSolveTimeSeconds:
+          (prev.totalSolveTimeSeconds + solveTime) /
+          Math.max(1, prev.successfulSubmissions + 1)
+      }));
     }
-    setRunning(false);
-  };
+
+  } catch (err) {
+    setError('Runtime Error: ' + String(err));
+  }
+
+  setRunning(false);
+};
+
 
   const getNextHint = () => {
     if (userProfile.totalSubmissions === 0) {
@@ -357,7 +357,7 @@ const App: React.FC = () => {
                         <button onClick={getNextHint} disabled={hintLevel >= currentProblem.hints.length} className="flex-1 bg-amber-500 text-white py-3 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-amber-600 disabled:opacity-50">
                           <Lightbulb size={18}/> HINT ({hintLevel}/{currentProblem.hints.length})
                         </button>
-                        <button onClick={() => setShowASTPanel(!showASTPanel)} className={`px-6 rounded-lg font-bold text-xs uppercase ${showASTPanel ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-500'}`}>AST</button>
+                        {/* <button onClick={() => setShowASTPanel(!showASTPanel)} className={`px-6 rounded-lg font-bold text-xs uppercase ${showASTPanel ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-500'}`}>AST</button> */}
                       </div>
 
                       {showHints && hintLevel > 0 && (
@@ -374,7 +374,7 @@ const App: React.FC = () => {
                         </div>
                       )}
                       
-                      {testResults.length > 0 && (
+                      {/* {testResults.length > 0 && (
                         <div className="grid grid-cols-2 gap-2">
                           {testResults.map(r => (
                             <div key={r.id} className={`p-2 rounded border flex items-center gap-2 text-[10px] font-bold ${r.passed ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'}`}>
@@ -382,8 +382,8 @@ const App: React.FC = () => {
                             </div>
                           ))}
                         </div>
-                      )}
-                      {showASTPanel && <ASTTestPanel problemId={currentProblem.id} studentCode={code} />}
+                      )} */}
+                      {/* {showASTPanel && <ASTTestPanel problemId={currentProblem.id} studentCode={code} />} */}
                     </div>
                   ) : (
                     <div className="min-h-[400px] flex items-center justify-center">
