@@ -5,7 +5,7 @@ import {
   BookOpen,
   Eye,
   Code2,
-  Lightbulb,
+  // Lightbulb,
   // CheckCircle,
   // XCircle,
   Zap,
@@ -84,8 +84,8 @@ const App: React.FC = () => {
   const [output, setOutput] = useState<string>('');
   const [error, setError] = useState<string>('');
   const [hints, setHints] = useState<string[]>([]);
-  const [showHints, setShowHints] = useState<boolean>(false);
-  const [hintLevel, setHintLevel] = useState<number>(0);
+  // const [showHints, setShowHints] = useState<boolean>(false);
+  // const [hintLevel, setHintLevel] = useState<number>(0);
   const [running, setRunning] = useState<boolean>(false);
   // const [testResults, setTestResults] = useState<TestResult[]>([]);
   const [activeTab, setActiveTab] = useState<'code' | 'visualization'>('code');
@@ -103,47 +103,47 @@ const App: React.FC = () => {
 
   // 2. Load progress & Handle level setting on Login
   useEffect(() => {
-  if (!authUser) return;
+    if (!authUser) return;
 
-  const loadProgress = async () => {
-    try {
-      const res = await fetch("http://localhost:4000/progress", {
-        headers: { Authorization: `Bearer ${authUser.token}` },
-      });
-      const data = await res.json();
-
-      if (data && data.profile) {
-        // This is the key: Force the UI to use the database level (Advanced)
-        setUserProfile(data.profile);
-
-        // Filter the database based on the NEWLY fetched level
-        const possibleProblems = problemDatabase.filter(p => {
-          if (data.profile.skillLevel === 'advanced') return true; // Advanced see all
-          if (data.profile.skillLevel === 'intermediate') return p.difficulty !== 'hard';
-          return p.difficulty === 'easy';
+    const loadProgress = async () => {
+      try {
+        const res = await fetch("http://localhost:4000/progress", {
+          headers: { Authorization: `Bearer ${authUser.token}` },
         });
+        const data = await res.json();
 
-        const found = problemDatabase.find(p => p.id === data.last_problem_id);
-        
-        if (found) {
-          setCurrentProblem(found);
-          setCode(data.last_code ?? found.starterCode);
-        } else {
-          // If they are Advanced but have solved nothing, show the first Hard problem
-          const startProblem = possibleProblems.find(p => 
-            data.profile.skillLevel === 'advanced' ? p.difficulty === 'hard' : p.difficulty === 'easy'
-          ) || possibleProblems[0];
-          
-          setCurrentProblem(startProblem);
-          setCode(startProblem.starterCode);
+        if (data && data.profile) {
+          // This is the key: Force the UI to use the database level (Advanced)
+          setUserProfile(data.profile);
+
+          // Filter the database based on the NEWLY fetched level
+          const possibleProblems = problemDatabase.filter(p => {
+            if (data.profile.skillLevel === 'advanced') return true; // Advanced see all
+            if (data.profile.skillLevel === 'intermediate') return p.difficulty !== 'hard';
+            return p.difficulty === 'easy';
+          });
+
+          const found = problemDatabase.find(p => p.id === data.last_problem_id);
+
+          if (found) {
+            setCurrentProblem(found);
+            setCode(data.last_code ?? found.starterCode);
+          } else {
+            // If they are Advanced but have solved nothing, show the first Hard problem
+            const startProblem = possibleProblems.find(p =>
+              data.profile.skillLevel === 'advanced' ? p.difficulty === 'hard' : p.difficulty === 'easy'
+            ) || possibleProblems[0];
+
+            setCurrentProblem(startProblem);
+            setCode(startProblem.starterCode);
+          }
         }
+      } catch (err) {
+        console.error("Failed to sync Advanced profile", err);
       }
-    } catch (err) {
-      console.error("Failed to sync Advanced profile", err);
-    }
-  };
-  loadProgress();
-}, [authUser]);
+    };
+    loadProgress();
+  }, [authUser]);
 
   // SUS Survey Trigger
   useEffect(() => {
@@ -189,8 +189,8 @@ const App: React.FC = () => {
     setOutput('');
     setError('');
     setHints([]);
-    setShowHints(false);
-    setHintLevel(0);
+    // setShowHints(false);
+    // setHintLevel(0);
     // setTestResults([]);
     setSessionStartTime(Date.now());
   }, [currentProblem]);
@@ -201,59 +201,59 @@ const App: React.FC = () => {
   // };
 
   const handleRunCode = async () => {
-  if (!sessionStartTime) setSessionStartTime(Date.now());
+    if (!sessionStartTime) setSessionStartTime(Date.now());
 
-  setUserProfile(prev => ({
-    ...prev,
-    totalSubmissions: prev.totalSubmissions + 1
-  }));
+    setUserProfile(prev => ({
+      ...prev,
+      totalSubmissions: prev.totalSubmissions + 1
+    }));
 
-  setRunning(true);
-  setOutput('');
-  setError('');
-  setHints([]);
+    setRunning(true);
+    setOutput('');
+    setError('');
+    setHints([]);
 
-  try {
-    const res = await runPython(code);
+    try {
+      const res = await runPython(code);
 
-    setOutput(res.output || '');
-    setError(res.error || '');
-    setHints(res.hints || []);
+      setOutput(res.output || '');
+      setError(res.error || '');
+      setHints(res.hints || []);
 
-    // If code ran successfully and produced output, count as a successful attempt
-    if (!res.error) {
-      const solveTime = (Date.now() - sessionStartTime!) / 1000;
+      // If code ran successfully and produced output, count as a successful attempt
+      if (!res.error) {
+        const solveTime = (Date.now() - sessionStartTime!) / 1000;
 
-      setUserProfile(prev => ({
-        ...prev,
-        successfulSubmissions: prev.successfulSubmissions + 1,
-        lastSolveTimeSeconds: solveTime,
-        totalSolveTimeSeconds: prev.totalSolveTimeSeconds + solveTime,
-        averageSolveTimeSeconds:
-          (prev.totalSolveTimeSeconds + solveTime) /
-          Math.max(1, prev.successfulSubmissions + 1)
-      }));
+        setUserProfile(prev => ({
+          ...prev,
+          successfulSubmissions: prev.successfulSubmissions + 1,
+          lastSolveTimeSeconds: solveTime,
+          totalSolveTimeSeconds: prev.totalSolveTimeSeconds + solveTime,
+          averageSolveTimeSeconds:
+            (prev.totalSolveTimeSeconds + solveTime) /
+            Math.max(1, prev.successfulSubmissions + 1)
+        }));
+      }
+
+    } catch (err) {
+      setError('Runtime Error: ' + String(err));
     }
 
-  } catch (err) {
-    setError('Runtime Error: ' + String(err));
-  }
-
-  setRunning(false);
-};
-
-
-  const getNextHint = () => {
-    if (userProfile.totalSubmissions === 0) {
-      setError("Try running your code at least once before asking for a hint!");
-      return;
-    }
-    if (hintLevel < currentProblem.hints.length) {
-      setHintLevel(prev => prev + 1);
-      setShowHints(true);
-      setUserProfile(prev => ({ ...prev, hintsUsed: prev.hintsUsed + 1 }));
-    }
+    setRunning(false);
   };
+
+
+  // const getNextHint = () => {
+  //   if (userProfile.totalSubmissions === 0) {
+  //     setError("Try running your code at least once before asking for a hint!");
+  //     return;
+  //   }
+  //   if (hintLevel < currentProblem.hints.length) {
+  //     setHintLevel(prev => prev + 1);
+  //     setShowHints(true);
+  //     setUserProfile(prev => ({ ...prev, hintsUsed: prev.hintsUsed + 1 }));
+  //   }
+  // };
 
   const getLearnerState = () => {
     const rate = userProfile.totalSubmissions > 0 ? userProfile.successfulSubmissions / userProfile.totalSubmissions : 0;
@@ -273,7 +273,7 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-50">
       {showSurvey && <SUSSurvey onComplete={(score) => { setFinalSUSScore(score); setShowSurvey(false); }} />}
-      
+
       {view === 'admin' ? (
         <AdminDashboard token={authUser.token} />
       ) : (
@@ -287,22 +287,22 @@ const App: React.FC = () => {
                   <p className="text-xs text-gray-500 mt-1 uppercase tracking-wider">Adaptive Tutor</p>
                 </div>
               </div>
-              
+
               <div className="flex items-center gap-6">
                 <button onClick={() => exportStudyData()} className="flex items-center gap-2 text-[10px] font-bold bg-amber-100 text-amber-700 px-3 py-1 rounded hover:bg-amber-200">
                   <Download size={12} /> EXPORT DATA
                 </button>
                 <button onClick={() => setView('admin')} className="text-xs font-bold text-indigo-600 border border-indigo-600 px-3 py-1 rounded-full hover:bg-indigo-50">Switch to Admin</button>
                 <div className="flex items-center gap-8 border-l pl-6">
-                    <div className="text-center">
-                        <div className="text-[10px] uppercase text-gray-400 font-bold">Level</div>
-                        <div className="text-sm font-bold text-indigo-600 capitalize">{userProfile.skillLevel}</div>
-                    </div>
-                    <div className="text-center">
-                        <div className="text-[10px] uppercase text-gray-400 font-bold">Solved</div>
-                        <div className="text-sm font-bold text-gray-900">{userProfile.problemsSolved}</div>
-                    </div>
-                    <button onClick={handleLogout} className="text-xs font-semibold text-red-500 hover:text-red-700">LOGOUT</button>
+                  <div className="text-center">
+                    <div className="text-[10px] uppercase text-gray-400 font-bold">Level</div>
+                    <div className="text-sm font-bold text-indigo-600 capitalize">{userProfile.skillLevel}</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-[10px] uppercase text-gray-400 font-bold">Solved</div>
+                    <div className="text-sm font-bold text-gray-900">{userProfile.problemsSolved}</div>
+                  </div>
+                  <button onClick={handleLogout} className="text-xs font-semibold text-red-500 hover:text-red-700">LOGOUT</button>
                 </div>
               </div>
             </div>
@@ -312,23 +312,22 @@ const App: React.FC = () => {
             {/* Sidebar with Filtered Tasks */}
             <div className="col-span-3 space-y-6">
               <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
-                <h3 className="text-sm font-bold text-gray-900 mb-4 flex items-center gap-2"><BookOpen size={16}/> Filtered Tasks</h3>
+                <h3 className="text-sm font-bold text-gray-900 mb-4 flex items-center gap-2"><BookOpen size={16} /> Filtered Tasks</h3>
                 <div className="space-y-2 overflow-y-auto max-h-[50vh]">
-  {filteredProblems.map(p => (
-    <button
-      key={p.id}
-      onClick={() => setCurrentProblem(p)}
-      className={`w-full text-left p-3 rounded-lg border transition-all ${
-        currentProblem.id === p.id ? 'bg-indigo-50 border-indigo-500' : 'bg-gray-50'
-      }`}
-    >
-      <div className="text-xs font-bold">{p.title}</div>
-      <div className="text-[10px] uppercase font-bold text-indigo-600">{p.difficulty}</div>
-    </button>
-  ))}
-</div>
+                  {filteredProblems.map(p => (
+                    <button
+                      key={p.id}
+                      onClick={() => setCurrentProblem(p)}
+                      className={`w-full text-left p-3 rounded-lg border transition-all ${currentProblem.id === p.id ? 'bg-indigo-50 border-indigo-500' : 'bg-gray-50'
+                        }`}
+                    >
+                      <div className="text-xs font-bold">{p.title}</div>
+                      <div className="text-[10px] uppercase font-bold text-indigo-600">{p.difficulty}</div>
+                    </button>
+                  ))}
+                </div>
               </div>
-              <button onClick={() => setCurrentProblem(problemDatabase[Math.floor(Math.random()*problemDatabase.length)])} className="w-full bg-indigo-600 text-white p-4 rounded-xl font-bold text-sm shadow-md hover:bg-indigo-700 flex items-center justify-center gap-2">
+              <button onClick={() => setCurrentProblem(problemDatabase[Math.floor(Math.random() * problemDatabase.length)])} className="w-full bg-indigo-600 text-white p-4 rounded-xl font-bold text-sm shadow-md hover:bg-indigo-700 flex items-center justify-center gap-2">
                 <Zap size={16} /> ADAPTIVE CHOICE
               </button>
             </div>
@@ -352,28 +351,46 @@ const App: React.FC = () => {
                       <CodeEditor code={code} onChange={setCode} />
                       <div className="flex gap-4">
                         <button onClick={handleRunCode} disabled={running} className="flex-1 bg-emerald-600 text-white py-3 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-emerald-700 disabled:opacity-50">
-                          {running ? <RefreshCw className="animate-spin" size={18}/> : <Play size={18}/>} RUN CODE
+                          {running ? <RefreshCw className="animate-spin" size={18} /> : <Play size={18} />} RUN CODE
                         </button>
-                        <button onClick={getNextHint} disabled={hintLevel >= currentProblem.hints.length} className="flex-1 bg-amber-500 text-white py-3 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-amber-600 disabled:opacity-50">
+                        {/* <button onClick={getNextHint} disabled={hintLevel >= currentProblem.hints.length} className="flex-1 bg-amber-500 text-white py-3 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-amber-600 disabled:opacity-50">
                           <Lightbulb size={18}/> HINT ({hintLevel}/{currentProblem.hints.length})
-                        </button>
+                        </button> */}
                         {/* <button onClick={() => setShowASTPanel(!showASTPanel)} className={`px-6 rounded-lg font-bold text-xs uppercase ${showASTPanel ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-500'}`}>AST</button> */}
                       </div>
 
-                      {showHints && hintLevel > 0 && (
+                      {/* {showHints && hintLevel > 0 && (
                         <div className="bg-amber-50 border-l-4 border-amber-400 p-4 rounded-r-lg">
                           {currentProblem.hints.slice(0, hintLevel).map((h, i) => (
                             <p key={i} className="text-sm text-amber-700 mb-1"><strong>{i+1}.</strong> {h.content}</p>
                           ))}
                         </div>
+                      )} */}
+
+                      {hints.length > 0 && (
+                        <div className="bg-amber-50 border-l-4 border-amber-400 p-4 rounded-r-lg">
+                          <h3 className="text-sm font-bold text-amber-800 mb-2">
+                            💡 Hints
+                          </h3>
+                          <ul className="space-y-1">
+                            {hints.map((hint, i) => (
+                              <li key={i} className="text-sm text-amber-700">
+                                {hint}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
                       )}
+
+
+
 
                       {(output || error) && (
                         <div className={`p-4 rounded-lg font-mono text-xs ${error ? 'bg-red-50 text-red-700' : 'bg-gray-900 text-gray-100'}`}>
                           {error ? `ERROR: ${error}` : `OUTPUT: ${output}`}
                         </div>
                       )}
-                      
+
                       {/* {testResults.length > 0 && (
                         <div className="grid grid-cols-2 gap-2">
                           {testResults.map(r => (
@@ -387,30 +404,30 @@ const App: React.FC = () => {
                     </div>
                   ) : (
                     <div className="min-h-[400px] flex items-center justify-center">
-                       {currentProblem.visualization === 'factorial' && <FactorialVisualizer initialN={5} />}
-                       {currentProblem.visualization === 'bubbleSort' && <BubbleSortVisualizer initialArray="[64, 34, 25, 12, 22]" />}
-                       {currentProblem.visualization === 'binarySearch' && <BinarySearchVisualizer initialArray="[1, 3, 5, 7, 9]" initialTarget={5} />}
-                       {!currentProblem.visualization && <div className="text-center opacity-30"><Eye size={48} className="mx-auto mb-2"/><p className="text-xs font-bold uppercase">No Visualizer for this Task</p></div>}
+                      {currentProblem.visualization === 'factorial' && <FactorialVisualizer initialN={5} />}
+                      {currentProblem.visualization === 'bubbleSort' && <BubbleSortVisualizer initialArray="[64, 34, 25, 12, 22]" />}
+                      {currentProblem.visualization === 'binarySearch' && <BinarySearchVisualizer initialArray="[1, 3, 5, 7, 9]" initialTarget={5} />}
+                      {!currentProblem.visualization && <div className="text-center opacity-30"><Eye size={48} className="mx-auto mb-2" /><p className="text-xs font-bold uppercase">No Visualizer for this Task</p></div>}
                     </div>
                   )}
                 </div>
               </div>
-              
+
               <div className="bg-indigo-900 rounded-xl p-4 text-white flex justify-between items-center shadow-lg">
-                 <div className="flex items-center gap-4">
-                    <div className="p-2 bg-white/10 rounded-lg"><Zap size={20} className="text-amber-400"/></div>
-                    <div>
-                       <div className="text-[10px] font-bold text-white/50 uppercase">Current State</div>
-                       <div className="text-sm font-black uppercase tracking-widest">{getLearnerState()}</div>
-                    </div>
-                 </div>
-                 <button onClick={() => setCurrentProblem(filteredProblems[0])} className="bg-white text-indigo-900 px-6 py-2 rounded-lg font-black text-xs uppercase hover:bg-indigo-100 transition-all">Next Problem</button>
+                <div className="flex items-center gap-4">
+                  <div className="p-2 bg-white/10 rounded-lg"><Zap size={20} className="text-amber-400" /></div>
+                  <div>
+                    <div className="text-[10px] font-bold text-white/50 uppercase">Current State</div>
+                    <div className="text-sm font-black uppercase tracking-widest">{getLearnerState()}</div>
+                  </div>
+                </div>
+                <button onClick={() => setCurrentProblem(filteredProblems[0])} className="bg-white text-indigo-900 px-6 py-2 rounded-lg font-black text-xs uppercase hover:bg-indigo-100 transition-all">Next Problem</button>
               </div>
             </div>
           </main>
         </>
       )}
-      
+
       {view === 'admin' && (
         <button onClick={() => setView('student')} className="fixed bottom-6 right-6 bg-indigo-600 text-white px-4 py-2 rounded-full shadow-2xl font-bold text-sm z-50 hover:scale-105">Back to Student View</button>
       )}
