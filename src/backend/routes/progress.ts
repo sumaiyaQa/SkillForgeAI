@@ -1,30 +1,40 @@
-import express from "express";
-import { pool } from "../db.js";
-import { authenticateToken } from "../middleware/auth.js";
+import express from 'express';
+import { pool } from '../db.js';
+import { authenticateToken, type AuthRequest } from '../middleware/auth.js';
 
 const router = express.Router();
 
-/* ======================================================
-   SAVE USER PROGRESS
-   ====================================================== */
-router.post("/", authenticateToken, async (req, res) => {
-  const userId = (req as any).userId;
+// SAVE USER PROGRESS (STUDENT ONLY)
+
+// Persists the current learner state.
+// This endpoint is called automatically during a study session.
+
+router.post('/', authenticateToken, async (req: AuthRequest, res) => {
+  const userId = req.userId;
+
+  // Admin users should never save learning progress
+  if (req.role === 'admin') {
+    return res.status(403).json({
+      message: 'Admins do not have learning progress',
+    });
+  }
+
   const { profile, lastProblemId, lastCode } = req.body;
 
   try {
-    // Ensure user exists
+    // Ensure user exists and is valid
     const userCheck = await pool.query(
-      "SELECT id FROM users WHERE id = $1",
+      'SELECT id FROM users WHERE id = $1',
       [userId]
     );
 
     if (userCheck.rowCount === 0) {
       return res.status(401).json({
-        message: "User does not exist. Please log in again.",
+        message: 'User does not exist. Please log in again.',
       });
     }
 
-    // UPSERT progress
+    // Insert or update progress atomically
     await pool.query(
       `
       INSERT INTO user_progress (user_id, profile, last_problem_id, last_code)
@@ -39,35 +49,44 @@ router.post("/", authenticateToken, async (req, res) => {
       [userId, profile, lastProblemId, lastCode]
     );
 
-    res.json({ message: "Progress saved successfully" });
+    res.json({ message: 'Progress saved successfully' });
   } catch (err) {
-    console.error("SAVE PROGRESS ERROR:", err);
-    res.status(500).json({ message: "Failed to save progress" });
+    console.error('SAVE PROGRESS ERROR:', err);
+    res.status(500).json({ message: 'Failed to save progress' });
   }
 });
 
-/* ======================================================
-   LOAD USER PROGRESS
-   ====================================================== */
-router.get("/", authenticateToken, async (req, res) => {
-  const userId = (req as any).userId;
+// LOAD USER PROGRESS (STUDENT ONLY)
+
+// Loads persisted learner state when a student logs in.
+// Skill level is always taken from the users table to avoid client-side tampering.
+
+router.get('/', authenticateToken, async (req: AuthRequest, res) => {
+  const userId = req.userId;
+
+  // Admin users never load learning progress
+  if (req.role === 'admin') {
+    return res.status(403).json({
+      message: 'Admins do not have learning progress',
+    });
+  }
 
   try {
-    // Get skill level from users table (authoritative)
+    // Fetch authoritative skill level
     const userResult = await pool.query(
-      "SELECT skill_level FROM users WHERE id = $1",
+      'SELECT skill_level FROM users WHERE id = $1',
       [userId]
     );
 
     if (userResult.rowCount === 0) {
       return res.status(401).json({
-        message: "User does not exist. Please log in again.",
+        message: 'User does not exist. Please log in again.',
       });
     }
 
-    const skillLevel = userResult.rows[0].skill_level || "beginner";
+    const skillLevel = userResult.rows[0].skill_level || 'beginner';
 
-    // Get existing progress
+    // Retrieve saved progress (if any)
     const progressResult = await pool.query(
       `
       SELECT profile, last_problem_id, last_code
@@ -77,7 +96,7 @@ router.get("/", authenticateToken, async (req, res) => {
       [userId]
     );
 
-    // New user — return default profile
+    // First time user, return default profile
     if (progressResult.rowCount === 0) {
       return res.json({
         profile: {
@@ -98,29 +117,38 @@ router.get("/", authenticateToken, async (req, res) => {
       });
     }
 
-    // Existing user — merge profile with authoritative skill level
+    // Existing user, merge stored profile with authoritative skill level
     const savedProfile = progressResult.rows[0].profile;
 
     res.json({
       profile: {
         ...savedProfile,
-        skillLevel, // ALWAYS trust users.skill_level
+        skillLevel, // Always trust users table
       },
       last_problem_id: progressResult.rows[0].last_problem_id,
       last_code: progressResult.rows[0].last_code,
     });
   } catch (err) {
-    console.error("LOAD PROGRESS ERROR:", err);
-    res.status(500).json({ message: "Failed to load progress" });
+    console.error('LOAD PROGRESS ERROR:', err);
+    res.status(500).json({ message: 'Failed to load progress' });
   }
 });
 
-/* ======================================================
-   ADMIN SUMMARY (STUDENTS ONLY)
-   ====================================================== */
-router.get("/summary", authenticateToken, async (req, res) => {
+// ADMIN SUMMARY (ANALYTICS ONLY)
+
+// Provides aggregated class-level analytics for instructors.
+// This endpoint is read-only and restricted to admin users.
+
+router.get('/summary', authenticateToken, async (req: AuthRequest, res) => {
+  // Explicit role enforcement for clarity and safety
+  if (req.role !== 'admin') {
+    return res.status(403).json({
+      message: 'Admin access required',
+    });
+  }
+
   try {
-    // Skill level distribution (students only)
+    // Distribution of student skill levels
     const skillDistribution = await pool.query(`
       SELECT 
         u.skill_level AS level,
@@ -132,7 +160,7 @@ router.get("/summary", authenticateToken, async (req, res) => {
       ORDER BY u.skill_level
     `);
 
-    // Average performance metrics
+    // Average performance metrics across students
     const averages = await pool.query(`
       SELECT
         AVG((p.profile->>'problemsSolved')::int) AS avg_solved,
@@ -147,8 +175,8 @@ router.get("/summary", authenticateToken, async (req, res) => {
       averages: averages.rows[0],
     });
   } catch (err) {
-    console.error("ADMIN SUMMARY ERROR:", err);
-    res.status(500).json({ message: "Failed to fetch admin summary" });
+    console.error('ADMIN SUMMARY ERROR:', err);
+    res.status(500).json({ message: 'Failed to fetch admin summary' });
   }
 });
 
