@@ -28,7 +28,7 @@ def analyze_code(source_code):
     try:
         tree = ast.parse(source_code)
 
-        // RULE 1: Infinite while True loop (CRITICAL)
+       #RULE 1: Infinite while True loop (CRITICAL)
         
         for node in ast.walk(tree):
             if isinstance(node, ast.While):
@@ -41,7 +41,7 @@ def analyze_code(source_code):
                             "Add a break statement or use a conditional loop."
                         )
 
-        // RULE 2: Function prints instead of returning
+        #RULE 2: Function prints instead of returning
         
         for node in ast.walk(tree):
             if isinstance(node, ast.FunctionDef):
@@ -56,7 +56,7 @@ def analyze_code(source_code):
                         "Tests usually expect a return value."
                     )
 
-    //    RULE 3: Hard-coded return value
+    #RULE 3: Hard-coded return value
         
         for node in ast.walk(tree):
             if isinstance(node, ast.Return) and isinstance(node.value, ast.Constant):
@@ -65,7 +65,7 @@ def analyze_code(source_code):
                     "Ensure your solution works for all valid inputs."
                 )
 
-        // RULE 4: Function defined but never called
+        #RULE 4: Function defined but never called
 
         has_function = any(isinstance(n, ast.FunctionDef) for n in ast.walk(tree))
         has_top_call = any(
