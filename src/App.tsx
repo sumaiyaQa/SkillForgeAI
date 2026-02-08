@@ -1,4 +1,9 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, {
+  useEffect,
+  useState,
+  useCallback,
+  useMemo,
+} from 'react';
 import {
   Play,
   RefreshCw,
@@ -6,7 +11,7 @@ import {
   Eye,
   Code2,
   Zap,
-  Download
+  Download,
 } from 'lucide-react';
 
 import { problemDatabase, type Problem } from './utils/problemDatabase';
@@ -22,7 +27,9 @@ import Login from './components/Login';
 import AdminDashboard from './components/AdminDashboard';
 import SUSSurvey from './components/SUSSurvey';
 
-/* ================= TYPES ================= */
+// TYPES
+
+// Represents the adaptive learner profile that is persisted between sessions.
 
 interface UserProfile {
   skillLevel: 'beginner' | 'intermediate' | 'advanced';
@@ -38,12 +45,14 @@ interface UserProfile {
   weaknesses: string[];
 }
 
+// Represents the authenticated user session.
+
 interface AuthUser {
   token: string;
   role: 'student' | 'admin';
 }
 
-/* ================= DEFAULTS ================= */
+// DEFAULT STATE
 
 const initialUserProfile: UserProfile = {
   skillLevel: 'beginner',
@@ -59,41 +68,61 @@ const initialUserProfile: UserProfile = {
   weaknesses: [],
 };
 
-/* ================= APP ================= */
+// APP ROOT
 
 const App: React.FC = () => {
+// AUTH
+
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
-  const [view, setView] = useState<'student' | 'admin'>('student');
 
-  const [userProfile, setUserProfile] = useState<UserProfile>(initialUserProfile);
+// STUDENT STATE
 
-  const [currentProblem, setCurrentProblem] = useState<Problem>(problemDatabase[0]);
+  const [userProfile, setUserProfile] =
+    useState<UserProfile>(initialUserProfile);
+
+  const [currentProblem, setCurrentProblem] =
+    useState<Problem>(problemDatabase[0]);
+
   const [code, setCode] = useState(currentProblem.starterCode);
   const [output, setOutput] = useState('');
   const [error, setError] = useState('');
   const [hints, setHints] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<'code' | 'visualization'>('code');
-  const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
+  const [activeTab, setActiveTab] =
+    useState<'code' | 'visualization'>('code');
+
+  const [sessionStartTime, setSessionStartTime] =
+    useState<number | null>(null);
+
   const [isSaving, setIsSaving] = useState(false);
 
+// SUS
+
   const [showSurvey, setShowSurvey] = useState(false);
-  const [finalSUSScore, setFinalSUSScore] = useState<number | null>(null);
+  const [finalSUSScore, setFinalSUSScore] =
+    useState<number | null>(null);
 
   const isAdmin = authUser?.role === 'admin';
 
-  /* ================= AUTH ================= */
+//  AUTH INITIALISATION
+
+// Restores authentication state from localStorage.
+// This avoids forcing users to log in again on refresh.
 
   useEffect(() => {
     const raw = localStorage.getItem('skillforge:auth');
-    if (raw) setAuthUser(JSON.parse(raw));
+    if (raw) {
+      setAuthUser(JSON.parse(raw));
+    }
     setAuthChecked(true);
   }, []);
 
-  /* ================= FILTERING ================= */
+// PROBLEM FILTERING (ADAPTIVE)
 
+// Filters available problems based on the user's inferred skill level.
+   
   const filteredProblems = useMemo(() => {
     if (userProfile.skillLevel === 'beginner') {
       return problemDatabase.filter(p => p.difficulty === 'easy');
@@ -104,43 +133,50 @@ const App: React.FC = () => {
     return problemDatabase;
   }, [userProfile.skillLevel]);
 
-  /* ================= LOAD PROGRESS ================= */
+// LOAD SAVED PROGRESS
 
   useEffect(() => {
-    if (!authUser) return;
+    if (!authUser || isAdmin) return;
 
     const loadProgress = async () => {
       const res = await fetch('http://localhost:4000/progress', {
-        headers: { Authorization: `Bearer ${authUser.token}` },
+        headers: {
+          Authorization: `Bearer ${authUser.token}`,
+        },
       });
+
       const data = await res.json();
 
       if (data?.profile) {
         setUserProfile(data.profile);
 
-        const found = problemDatabase.find(p => p.id === data.last_problem_id);
-        const start = found ?? filteredProblems[0];
+        const last =
+          problemDatabase.find(p => p.id === data.last_problem_id) ??
+          filteredProblems[0];
 
-        setCurrentProblem(start);
-        setCode(data.last_code ?? start.starterCode);
+        setCurrentProblem(last);
+        setCode(data.last_code ?? last.starterCode);
+        setSessionStartTime(Date.now());
       }
     };
 
     loadProgress();
-  }, [authUser, filteredProblems]);
+  }, [authUser, filteredProblems, isAdmin]);
 
-  /* ================= SUS ================= */
-
+// SUS SURVEY TRIGGER
   useEffect(() => {
     if (userProfile.problemsSolved >= 3 && !finalSUSScore) {
       setShowSurvey(true);
     }
   }, [userProfile.problemsSolved, finalSUSScore]);
 
-  /* ================= AUTOSAVE ================= */
+// AUTOSAVE
 
+// Persists user progress to the backend.
+// Debounced to avoid excessive network traffic
   const saveProgress = useCallback(async () => {
-    if (!authUser || isSaving) return;
+    if (!authUser || isSaving || isAdmin) return;
+
     setIsSaving(true);
 
     await fetch('http://localhost:4000/progress', {
@@ -157,23 +193,32 @@ const App: React.FC = () => {
     });
 
     setIsSaving(false);
-  }, [authUser, userProfile, currentProblem.id, code, isSaving]);
+  }, [
+    authUser,
+    userProfile,
+    currentProblem.id,
+    code,
+    isSaving,
+    isAdmin,
+  ]);
 
   useEffect(() => {
-    if (!authUser || !sessionStartTime) return;
+    if (!authUser || !sessionStartTime || isAdmin) return;
     const t = setTimeout(saveProgress, 2000);
     return () => clearTimeout(t);
-  }, [code, userProfile.problemsSolved, saveProgress]);
+  }, [code, userProfile.problemsSolved, saveProgress, isAdmin]);
 
-  /* ================= RUN CODE ================= */
-
+// CODE EXECUTION
   const handleRunCode = async () => {
     setRunning(true);
     setOutput('');
     setError('');
     setHints([]);
 
-    setUserProfile(p => ({ ...p, totalSubmissions: p.totalSubmissions + 1 }));
+    setUserProfile(p => ({
+      ...p,
+      totalSubmissions: p.totalSubmissions + 1,
+    }));
 
     const res = await runPython(code);
 
@@ -182,15 +227,21 @@ const App: React.FC = () => {
     setHints(res.hints || []);
 
     if (!res.error) {
-      const solveTime = (Date.now() - (sessionStartTime ?? Date.now())) / 1000;
-      const hasCritical = res.hints?.some(h => h.includes('🚨'));
+      const solveTime =
+        (Date.now() - (sessionStartTime ?? Date.now())) / 1000;
+
+      const hasCritical =
+        res.hints?.some(h => h.includes('🚨'));
 
       setUserProfile(p => ({
         ...p,
         successfulSubmissions: p.successfulSubmissions + 1,
-        problemsSolved: hasCritical ? p.problemsSolved : p.problemsSolved + 1,
+        problemsSolved: hasCritical
+          ? p.problemsSolved
+          : p.problemsSolved + 1,
         lastSolveTimeSeconds: solveTime,
-        totalSolveTimeSeconds: p.totalSolveTimeSeconds + solveTime,
+        totalSolveTimeSeconds:
+          p.totalSolveTimeSeconds + solveTime,
         averageSolveTimeSeconds:
           (p.totalSolveTimeSeconds + solveTime) /
           Math.max(1, p.problemsSolved + 1),
@@ -200,46 +251,55 @@ const App: React.FC = () => {
     setRunning(false);
   };
 
-  /* ================= LOGOUT ================= */
+// LOGOUT
 
   const handleLogout = () => {
     localStorage.removeItem('skillforge:auth');
     setAuthUser(null);
   };
 
-  /* ================= GUARDS ================= */
+// GUARDS
 
-  if (!authChecked) return <div className="p-6">Initializing…</div>;
+  if (!authChecked) {
+    return <div className="p-6">Initializing…</div>;
+  }
 
   if (!authUser) {
     return (
       <Login
-        onLogin={(token) => {
-          const user: AuthUser = { token, role: 'student' };
-          localStorage.setItem('skillforge:auth', JSON.stringify(user));
-          setAuthUser(user);
+        onLogin={auth => {
+          localStorage.setItem(
+            'skillforge:auth',
+            JSON.stringify(auth)
+          );
+          setAuthUser(auth);
         }}
       />
     );
   }
 
-  /* ================= RENDER ================= */
+ 
+  // RENDER
 
   return (
     <div className="min-h-screen bg-gray-50">
       {showSurvey && (
         <SUSSurvey
-          onComplete={s => {
-            setFinalSUSScore(s);
+          onComplete={score => {
+            setFinalSUSScore(score);
             setShowSurvey(false);
           }}
         />
       )}
 
-      {view === 'admin' ? (
+      {/* Admin users never see the student interface */}
+      {isAdmin ? (
         <AdminDashboard token={authUser.token} />
       ) : (
-        <div className="p-6">App Loaded Successfully</div>
+        <div className="p-6">
+          {/* Student UI would normally render here */}
+          App Loaded Successfully
+        </div>
       )}
     </div>
   );
