@@ -1,17 +1,22 @@
-// Python Worker for Code Execution + AST Hint Analysis
 
-// This Web Worker executes Python code in a sandboxed
-// Pyodide environment and performs lightweight static analysis using Python's AST module.
+//    Python Worker for Safe Execution + AST-Based Feedback
+
+//    Responsibilities:
+//    1. Perform lightweight static analysis using Python AST
+//    2. Block unsafe execution (e.g. infinite loops)
+//    3. Execute Python code in a sandboxed Pyodide environment
+
+//    This worker provides formative feedback only.
+//    It does NOT perform grading or correctness evaluation.
 
 importScripts('https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js');
 
 let pyodide = null;
 
-// EMBEDDED PYTHON AST ANALYSER
+// EMBEDDED AST ANALYSER (SINGLE SOURCE OF TRUTH)
+    
 
-
-//  The analyser is embedded directly into the worker to keep the execution environment self-contained and deterministic.
-//  It performs static checks only, no code execution.
+// This analyser is intentionally lightweight and focuses on common educational mistakes. It runs before execution to ensure safety and provide helpful hints.
  
 const ANALYZER_SOURCE = `
 import ast
@@ -23,24 +28,21 @@ def analyze_code(source_code):
     try:
         tree = ast.parse(source_code)
 
-        //RULE 1: Infinite while True loop (CRITICAL)
-       
+        // RULE 1: Infinite while True loop (CRITICAL)
+        
         for node in ast.walk(tree):
             if isinstance(node, ast.While):
                 if isinstance(node.test, ast.Constant) and node.test.value is True:
-                    has_break = any(isinstance(n, ast.Break) for n in ast.walk(node))
-                    if not has_break:
-                        raw_matches.append({
-                            "severity": "CRITICAL",
-                            "type": "infinite_loop"
-                        })
+                    has_exit = any(isinstance(n, ast.Break) for n in ast.walk(node))
+                    if not has_exit:
+                        raw_matches.append({"severity": "CRITICAL"})
                         hints.append(
                             "🚨 This while loop has no exit condition. "
                             "Add a break statement or use a conditional loop."
                         )
 
-        // RULE 2: Function prints instead of returns
-         
+        // RULE 2: Function prints instead of returning
+        
         for node in ast.walk(tree):
             if isinstance(node, ast.FunctionDef):
                 has_return = any(isinstance(n, ast.Return) for n in ast.walk(node))
@@ -54,53 +56,47 @@ def analyze_code(source_code):
                         "Tests usually expect a return value."
                     )
 
-        // RULE 3: Hard-coded return value
+    //    RULE 3: Hard-coded return value
         
         for node in ast.walk(tree):
             if isinstance(node, ast.Return) and isinstance(node.value, ast.Constant):
                 hints.append(
                     "🚨 A constant value is returned. "
-                    "Make sure your solution works for all possible inputs."
+                    "Ensure your solution works for all valid inputs."
                 )
 
-    // RULE 4: Function defined but never called
-        
+        // RULE 4: Function defined but never called
+
         has_function = any(isinstance(n, ast.FunctionDef) for n in ast.walk(tree))
-        has_top_level_call = any(
+        has_top_call = any(
             isinstance(n, ast.Expr) and isinstance(n.value, ast.Call)
             for n in tree.body
         )
 
-        if has_function and not has_top_level_call:
+        if has_function and not has_top_call:
             hints.append(
-                "💡 You have defined a function, but it is never called. "
+                "💡 You defined a function but never called it. "
                 "Try calling the function to see its output."
             )
 
         return {
             "hints": hints,
-            "summary": {
-                "total_issues": len(hints)
-            },
+            "summary": { "total_issues": len(hints) },
             "raw_matches": raw_matches
         }
 
     except SyntaxError as e:
         return {
-            "hints": [
-                f"🚨 Syntax error on line {e.lineno}: {e.msg}"
-            ],
-            "summary": {
-                "total_issues": 1
-            },
+            "hints": [f"🚨 Syntax error on line {e.lineno}: {e.msg}"],
+            "summary": { "total_issues": 1 },
             "raw_matches": []
         }
 `;
 
 // PYODIDE INITIALISATION (RUNS ONCE)
 
-// loads the Pyodide runtime and registers the embedded AST analyser as a Python module.
- 
+// Loads Pyodide lazily and registers the AST analyser.
+
 async function getPyodideInstance() {
   if (!pyodide) {
     pyodide = await loadPyodide();
@@ -110,9 +106,7 @@ async function getPyodideInstance() {
 }
 
 // WORKER MESSAGE HANDLER
-
-
-// Receives Python source code from the main thread, performs static analysis first, then executes the code if it is considered safe.
+// Receives Python source code, performs static analysis, and executes the code only if it is considered safe.
  
 self.onmessage = async (event) => {
   const { code } = event.data;
@@ -125,8 +119,8 @@ self.onmessage = async (event) => {
 
   try {
 
-// STATIC ANALYSIS (AST-based)
-        
+// 1. STATIC ANALYSIS (AST)
+
     const analysisJson = await instance.runPythonAsync(`
 import json
 from analyzer_lib import analyze_code
@@ -152,8 +146,7 @@ json.dumps(analyze_code(${JSON.stringify(code)}))
       return;
     }
 
-   
-    // STDOUT / STDERR CAPTURE
+// 2. CAPTURE STDOUT / STDERR
 
     await instance.runPythonAsync(`
 import sys
@@ -162,7 +155,7 @@ sys.stdout = StringIO()
 sys.stderr = StringIO()
     `);
 
-    // RUNTIME EXECUTION
+// 3. EXECUTE USER CODE
 
     try {
       await instance.runPythonAsync(code);
@@ -171,11 +164,10 @@ sys.stderr = StringIO()
     } catch (runtimeErr) {
       error = runtimeErr.toString();
 
-      // Common recursion failure case
       if (error.includes('RecursionError')) {
         hints.push(
           '🚨 Infinite recursion detected.',
-          'Ensure your function has a base case that stops recursion.'
+          'Ensure your function has a valid base case.'
         );
       }
     }
@@ -183,7 +175,7 @@ sys.stderr = StringIO()
     error = err.toString();
   }
 
-// RETURN RESULT TO UI
+// 4. RETURN RESULT TO UI
 
   self.postMessage({
     output,
