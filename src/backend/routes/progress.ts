@@ -4,23 +4,27 @@ import { authenticateToken } from "../middleware/auth.js";
 
 const router = express.Router();
 
-/**
- * SAVE progress
- */
+/* ======================================================
+   SAVE USER PROGRESS
+   ====================================================== */
 router.post("/", authenticateToken, async (req, res) => {
   const userId = (req as any).userId;
   const { profile, lastProblemId, lastCode } = req.body;
 
   try {
-    // 1. Check if the user actually exists in the users table
-    const userCheck = await pool.query("SELECT id FROM users WHERE id = $1", [userId]);
-    
+    // Ensure user exists
+    const userCheck = await pool.query(
+      "SELECT id FROM users WHERE id = $1",
+      [userId]
+    );
+
     if (userCheck.rowCount === 0) {
-      // If the user doesn't exist, tell the frontend to log out
-      return res.status(401).json({ message: "User no longer exists. Please log out." });
+      return res.status(401).json({
+        message: "User does not exist. Please log in again.",
+      });
     }
 
-    // 2. If they exist, proceed with the UPSERT
+    // UPSERT progress
     await pool.query(
       `
       INSERT INTO user_progress (user_id, profile, last_problem_id, last_code)
@@ -35,41 +39,49 @@ router.post("/", authenticateToken, async (req, res) => {
       [userId, profile, lastProblemId, lastCode]
     );
 
-    res.json({ message: "Progress saved" });
+    res.json({ message: "Progress saved successfully" });
   } catch (err) {
-    console.error(err);
+    console.error("SAVE PROGRESS ERROR:", err);
     res.status(500).json({ message: "Failed to save progress" });
   }
 });
-/**
- * LOAD progress
- */
-/**
- * LOAD progress
- */
+
+/* ======================================================
+   LOAD USER PROGRESS
+   ====================================================== */
 router.get("/", authenticateToken, async (req, res) => {
   const userId = (req as any).userId;
 
   try {
-    // 1. Try to get existing progress
-    const progressResult = await pool.query(
-      "SELECT profile, last_problem_id, last_code FROM user_progress WHERE user_id = $1",
-      [userId]
-    );
-
-    // 2. ALWAYS get the user's skill level from users table
+    // Get skill level from users table (authoritative)
     const userResult = await pool.query(
       "SELECT skill_level FROM users WHERE id = $1",
       [userId]
     );
 
-    const skillLevel = userResult.rows[0]?.skill_level || 'beginner';
+    if (userResult.rowCount === 0) {
+      return res.status(401).json({
+        message: "User does not exist. Please log in again.",
+      });
+    }
 
+    const skillLevel = userResult.rows[0].skill_level || "beginner";
+
+    // Get existing progress
+    const progressResult = await pool.query(
+      `
+      SELECT profile, last_problem_id, last_code
+      FROM user_progress
+      WHERE user_id = $1
+      `,
+      [userId]
+    );
+
+    // New user — return default profile
     if (progressResult.rowCount === 0) {
-      // New user - return default profile with correct skill level from registration
       return res.json({
         profile: {
-          skillLevel: skillLevel,
+          skillLevel,
           problemsSolved: 0,
           hintsUsed: 0,
           totalSubmissions: 0,
@@ -79,54 +91,63 @@ router.get("/", authenticateToken, async (req, res) => {
           lastSolveTimeSeconds: 0,
           errorPatterns: {},
           strengths: [],
-          weaknesses: []
+          weaknesses: [],
         },
         last_problem_id: null,
-        last_code: null
+        last_code: null,
       });
     }
 
-    // Existing user - merge saved profile with current skill level from users table
+    // Existing user — merge profile with authoritative skill level
     const savedProfile = progressResult.rows[0].profile;
-    const mergedProfile = {
-      ...savedProfile,
-      skillLevel: skillLevel // Always use the authoritative skill_level from users table
-    };
 
     res.json({
-      profile: mergedProfile,
+      profile: {
+        ...savedProfile,
+        skillLevel, // ALWAYS trust users.skill_level
+      },
       last_problem_id: progressResult.rows[0].last_problem_id,
-      last_code: progressResult.rows[0].last_code
+      last_code: progressResult.rows[0].last_code,
     });
   } catch (err) {
-    console.error(err);
+    console.error("LOAD PROGRESS ERROR:", err);
     res.status(500).json({ message: "Failed to load progress" });
   }
 });
-/**
- * GET admin summary of all student progress
- */
+
+/* ======================================================
+   ADMIN SUMMARY (STUDENTS ONLY)
+   ====================================================== */
 router.get("/summary", authenticateToken, async (req, res) => {
   try {
-    // 1. Get skill level distribution
-    const skillDist = await pool.query(
-      "SELECT profile->>'skillLevel' as level, COUNT(*) as count FROM user_progress GROUP BY level"
-    );
+    // Skill level distribution (students only)
+    const skillDistribution = await pool.query(`
+      SELECT 
+        u.skill_level AS level,
+        COUNT(*)::int AS count
+      FROM users u
+      JOIN user_progress p ON p.user_id = u.id
+      WHERE u.role = 'student'
+      GROUP BY u.skill_level
+      ORDER BY u.skill_level
+    `);
 
-    // 2. Get average metrics
-    const avgMetrics = await pool.query(
-      `SELECT 
-        AVG((profile->>'problemsSolved')::int) as avg_solved,
-        AVG((profile->>'successfulSubmissions')::int) as avg_success
-       FROM user_progress`
-    );
+    // Average performance metrics
+    const averages = await pool.query(`
+      SELECT
+        AVG((p.profile->>'problemsSolved')::int) AS avg_solved,
+        AVG((p.profile->>'successfulSubmissions')::int) AS avg_success
+      FROM users u
+      JOIN user_progress p ON p.user_id = u.id
+      WHERE u.role = 'student'
+    `);
 
     res.json({
-      skillDistribution: skillDist.rows,
-      averages: avgMetrics.rows[0]
+      skillDistribution: skillDistribution.rows,
+      averages: averages.rows[0],
     });
   } catch (err) {
-    console.error(err);
+    console.error("ADMIN SUMMARY ERROR:", err);
     res.status(500).json({ message: "Failed to fetch admin summary" });
   }
 });

@@ -5,40 +5,50 @@ import { pool } from "../db.js";
 
 const router = express.Router();
 
-/**
- * REGISTER
- */
+/* ============================
+   REGISTER
+============================ */
+
 router.post("/register", async (req, res) => {
-  const { email, password, skillLevel } = req.body; // Added skillLevel
+  const { email, password, skillLevel } = req.body;
 
   if (!email || !password) {
     return res.status(400).json({ message: "Email and password required" });
   }
 
   try {
-    const existingUser = await pool.query("SELECT id FROM users WHERE email = $1", [email]);
-    if ((existingUser.rowCount ?? 0) > 0) {
+    const existingUser = await pool.query(
+      "SELECT id FROM users WHERE email = $1",
+      [email]
+    );
+
+    if (existingUser.rowCount && existingUser.rowCount > 0) {
       return res.status(409).json({ message: "User already exists" });
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
 
-    // Save user with their assessed skill level
-    const result = await pool.query(
-      "INSERT INTO users (email, password_hash, skill_level) VALUES ($1, $2, $3) RETURNING id",
-      [email, passwordHash, skillLevel || 'beginner']
+    await pool.query(
+      `
+      INSERT INTO users (email, password_hash, skill_level, role)
+      VALUES ($1, $2, $3, 'student')
+      `,
+      [email, passwordHash, skillLevel || "beginner"]
     );
 
-    res.status(201).json({ message: "User registered successfully" });
+    res.status(201).json({
+      message: "User registered successfully",
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Server error" });
   }
 });
 
-/**
- * LOGIN
- */
+/* ============================
+   LOGIN
+============================ */
+
 router.post("/login", async (req, res) => {
   const { email, password } = req.body;
 
@@ -48,7 +58,11 @@ router.post("/login", async (req, res) => {
 
   try {
     const result = await pool.query(
-      "SELECT id, password_hash FROM users WHERE email = $1",
+      `
+      SELECT id, password_hash, role, skill_level
+      FROM users
+      WHERE email = $1
+      `,
       [email]
     );
 
@@ -58,19 +72,29 @@ router.post("/login", async (req, res) => {
 
     const user = result.rows[0];
 
-    const validPassword = await bcrypt.compare(password, user.password_hash);
+    const validPassword = await bcrypt.compare(
+      password,
+      user.password_hash
+    );
 
     if (!validPassword) {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
     const token = jwt.sign(
-      { userId: user.id },
+      {
+        userId: user.id,
+        role: user.role,
+      },
       process.env.JWT_SECRET as string,
       { expiresIn: "7d" }
     );
 
-    res.json({ token });
+    res.json({
+      token,
+      role: user.role,
+      skillLevel: user.skill_level,
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Server error" });

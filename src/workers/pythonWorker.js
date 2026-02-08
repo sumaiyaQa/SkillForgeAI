@@ -8,7 +8,7 @@ importScripts("https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js");
 let pyodide = null;
 
 /* =========================================================
-   Minimal Python AST Analyzer (loaded into Pyodide FS)
+   Embedded Python AST Analyzer (self-contained)
    ========================================================= */
 
 const ANALYZER_SOURCE = `
@@ -65,17 +65,18 @@ def analyze_code(source_code):
                 )
 
         # ----------------------------------------
-        # RULE 4: No output produced
+        # RULE 4: Function defined but never called
         # ----------------------------------------
-        has_print = any(
-            isinstance(n, ast.Call) and getattr(n.func, "id", None) == "print"
-            for n in ast.walk(tree)
+        has_function = any(isinstance(n, ast.FunctionDef) for n in ast.walk(tree))
+        has_top_level_call = any(
+            isinstance(n, ast.Expr) and isinstance(n.value, ast.Call)
+            for n in tree.body
         )
 
-        if not has_print:
+        if has_function and not has_top_level_call:
             hints.append(
-                "💡 Your program runs but does not display any output. "
-                "Use print() to show results."
+                "💡 You have defined a function, but it is never called. "
+                "Try calling the function to see its output."
             )
 
         return {
@@ -97,9 +98,6 @@ def analyze_code(source_code):
             "raw_matches": []
         }
 `;
-
-
-
 /* =========================================================
    Initialise Pyodide (runs once)
    ========================================================= */
@@ -107,10 +105,6 @@ def analyze_code(source_code):
 async function getPyodideInstance() {
     if (!pyodide) {
         pyodide = await loadPyodide();
-
-        // astHints.py must exist in the virtual FS
-        // (this file is bundled by your app build)
-        // We create a tiny wrapper so we can import cleanly
         pyodide.FS.writeFile("analyzer_lib.py", ANALYZER_SOURCE);
     }
     return pyodide;
@@ -141,11 +135,9 @@ json.dumps(analyze_code(${JSON.stringify(code)}))
         `);
 
         const analysis = JSON.parse(analysisJson);
-
         hints = analysis.hints || [];
         summary = analysis.summary || {};
 
-        // Block execution if CRITICAL issue exists
         const hasCritical = analysis.raw_matches?.some(
             m => m.severity === "CRITICAL"
         );
@@ -172,13 +164,23 @@ sys.stderr = StringIO()
         `);
 
         /* ---------------------------------------------
-           3. Execute user code
+           3. Execute user code (runtime-safe)
            --------------------------------------------- */
 
-        await instance.runPythonAsync(code);
+        try {
+            await instance.runPythonAsync(code);
+            output = instance.runPython("sys.stdout.getvalue()");
+            error = instance.runPython("sys.stderr.getvalue()");
+        } catch (runtimeErr) {
+            error = runtimeErr.toString();
 
-        output = instance.runPython("sys.stdout.getvalue()");
-        error = instance.runPython("sys.stderr.getvalue()");
+            if (error.includes("RecursionError")) {
+                hints.push(
+                    "🚨 Infinite recursion detected. ",
+                    "Ensure your function has a base case that stops recursion."
+                );
+            }
+        }
 
     } catch (err) {
         error = err.toString();
