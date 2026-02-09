@@ -22,7 +22,7 @@ import SUSSurvey from './components/SUSSurvey';
 interface UserProfile {
   skillLevel: 'beginner' | 'intermediate' | 'advanced';
   problemsSolved: number;
-  solvedProblemIds: number[]; 
+  solvedProblemIds: number[];
   hintsUsed: number;
   totalSubmissions: number;
   successfulSubmissions: number;
@@ -63,7 +63,7 @@ const App: React.FC = () => {
   const [showSurvey, setShowSurvey] = useState(false);
   const [finalSUSScore, setFinalSUSScore] = useState<number | null>(null);
 
-// Adaptive filtering
+  // Adaptive filtering
   const filteredProblems = useMemo(() => {
     return problemDatabase.filter(p => {
       if (userProfile.skillLevel === 'beginner') return p.difficulty === 'easy';
@@ -82,7 +82,27 @@ const App: React.FC = () => {
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
-// Auth
+
+
+  //PROGRESS METRICS
+
+  // Percentage of problems solved at current skill level
+  const progressPercent =
+    filteredProblems.length > 0
+      ? (userProfile.solvedProblemIds.length / filteredProblems.length) * 100
+      : 0;
+
+  // Submission success rate
+  const successRate =
+    userProfile.totalSubmissions > 0
+      ? Math.round(
+        (userProfile.successfulSubmissions /
+          userProfile.totalSubmissions) * 100
+      )
+      : 0;
+
+
+  // Auth
   useEffect(() => {
     const raw = localStorage.getItem("skillforge:auth");
     if (raw) {
@@ -94,7 +114,7 @@ const App: React.FC = () => {
 
 
 
-// Load progress
+  // Load progress
   useEffect(() => {
     if (!authUser) return;
 
@@ -122,14 +142,14 @@ const App: React.FC = () => {
     loadProgress();
   }, [authUser, filteredProblems]);
 
-// SUS Survey
+  // SUS Survey
   useEffect(() => {
     if (userProfile.problemsSolved >= 3 && !finalSUSScore) {
       setShowSurvey(true);
     }
   }, [userProfile.problemsSolved, finalSUSScore]);
 
-// Autosave
+  // Autosave
   const saveProgress = useCallback(async () => {
     if (!authUser || isSaving) return;
     setIsSaving(true);
@@ -169,85 +189,85 @@ const App: React.FC = () => {
     setSessionStartTime(Date.now());
   }, [currentProblem]);
 
-// Run code
- const handleRunCode = async () => {
-  if (!sessionStartTime) setSessionStartTime(Date.now());
+  // Run code
+  const handleRunCode = async () => {
+    if (!sessionStartTime) setSessionStartTime(Date.now());
 
-  setRunning(true);
-  setOutput('');
-  setError('');
-  setHints([]);
+    setRunning(true);
+    setOutput('');
+    setError('');
+    setHints([]);
 
-  try {
-    const res = await runPython(code);
+    try {
+      const res = await runPython(code);
 
-    setOutput(res.output || '');
-    setError(res.error || '');
-    setHints(res.hints || []);
+      setOutput(res.output || '');
+      setError(res.error || '');
+      setHints(res.hints || []);
 
-    // Count every attempt
-    setUserProfile(prev => ({
-      ...prev,
-      totalSubmissions: prev.totalSubmissions + 1,
-    }));
+      // Count every attempt
+      setUserProfile(prev => ({
+        ...prev,
+        totalSubmissions: prev.totalSubmissions + 1,
+      }));
 
-    // Stop if execution failed
-    if (res.error) {
-      setRunning(false);
-      return;
+      // Stop if execution failed
+      if (res.error) {
+        setRunning(false);
+        return;
+      }
+
+      const expected = currentProblem.exampleCases?.[0]?.output?.trim();
+      const actual = res.output?.trim();
+
+      if (expected === actual) {
+        const solveTime =
+          (Date.now() - (sessionStartTime ?? Date.now())) / 1000;
+
+        setUserProfile(prev => {
+          const alreadySolved = prev.solvedProblemIds.includes(
+            currentProblem.id
+          );
+
+          const hasCritical = res.hints?.some(h =>
+            h.includes('🚨')
+          );
+
+          if (hasCritical) return prev;
+
+          const newSolved = !alreadySolved
+            ? [...prev.solvedProblemIds, currentProblem.id]
+            : prev.solvedProblemIds;
+
+          const newProblemsSolved = !alreadySolved
+            ? prev.problemsSolved + 1
+            : prev.problemsSolved;
+
+          const newTotalSolveTime =
+            prev.totalSolveTimeSeconds + solveTime;
+
+          return {
+            ...prev,
+            successfulSubmissions: prev.successfulSubmissions + 1,
+            problemsSolved: newProblemsSolved,
+            solvedProblemIds: newSolved,
+            lastSolveTimeSeconds: solveTime,
+            totalSolveTimeSeconds: newTotalSolveTime,
+            averageSolveTimeSeconds:
+              newTotalSolveTime /
+              Math.max(1, newProblemsSolved),
+          };
+        });
+      }
+    } catch (err) {
+      setError('Runtime Error: ' + String(err));
     }
 
-    const expected = currentProblem.exampleCases?.[0]?.output?.trim();
-    const actual = res.output?.trim();
-
-    if (expected === actual) {
-      const solveTime =
-        (Date.now() - (sessionStartTime ?? Date.now())) / 1000;
-
-      setUserProfile(prev => {
-        const alreadySolved = prev.solvedProblemIds.includes(
-          currentProblem.id
-        );
-
-        const hasCritical = res.hints?.some(h =>
-          h.includes('🚨')
-        );
-
-        if (hasCritical) return prev;
-
-        const newSolved = !alreadySolved
-          ? [...prev.solvedProblemIds, currentProblem.id]
-          : prev.solvedProblemIds;
-
-        const newProblemsSolved = !alreadySolved
-          ? prev.problemsSolved + 1
-          : prev.problemsSolved;
-
-        const newTotalSolveTime =
-          prev.totalSolveTimeSeconds + solveTime;
-
-        return {
-          ...prev,
-          successfulSubmissions: prev.successfulSubmissions + 1,
-          problemsSolved: newProblemsSolved,
-          solvedProblemIds: newSolved,
-          lastSolveTimeSeconds: solveTime,
-          totalSolveTimeSeconds: newTotalSolveTime,
-          averageSolveTimeSeconds:
-            newTotalSolveTime /
-            Math.max(1, newProblemsSolved),
-        };
-      });
-    }
-  } catch (err) {
-    setError('Runtime Error: ' + String(err));
-  }
-
-  setRunning(false);
-};
+    setRunning(false);
+  };
 
 
-//  Recommend next problem 
+  //  Recommend next problem 
   const recommendNextProblem = () => {
     const idx = filteredProblems.findIndex(p => p.id === currentProblem.id);
     const next = filteredProblems[idx + 1];
@@ -306,17 +326,51 @@ const App: React.FC = () => {
                   </button>
                 )}
 
-                <div className="border-l pl-6 flex gap-6">
+                <div className="border-l pl-6 flex gap-6 items-center">
+                  {/* Skill Level */}
                   <div className="text-center">
                     <div className="text-[10px] text-gray-400 font-bold">LEVEL</div>
                     <div className="font-bold text-indigo-600 capitalize">
                       {userProfile.skillLevel}
                     </div>
                   </div>
+
+                  {/* Solved Count */}
                   <div className="text-center">
                     <div className="text-[10px] text-gray-400 font-bold">SOLVED</div>
-                    <div className="font-bold">{userProfile.problemsSolved}</div>
+                    <div className="font-bold">
+                      {userProfile.solvedProblemIds.length}
+                      <span className="text-gray-400">
+                        /{filteredProblems.length}
+                      </span>
+                    </div>
                   </div>
+
+                  {/* Success Rate */}
+                  <div className="text-center">
+                    <div className="text-[10px] text-gray-400 font-bold">SUCCESS</div>
+                    <div className="font-bold text-emerald-600">
+                      {successRate}%
+                    </div>
+                  </div>
+
+                  {/* Progress Bar */}
+                  <div className="w-32">
+                    <div className="text-[10px] text-gray-400 font-bold mb-1">
+                      PROGRESS
+                    </div>
+                    <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-indigo-600 transition-all duration-500"
+                        style={{ width: `${progressPercent}%` }}
+                      />
+                    </div>
+                    <div className="text-[10px] text-right text-gray-500 mt-1">
+                      {Math.round(progressPercent)}%
+                    </div>
+                  </div>
+
+                  {/* Logout */}
                   <button
                     onClick={handleLogout}
                     className="text-xs font-semibold text-red-500"
@@ -324,6 +378,7 @@ const App: React.FC = () => {
                     LOGOUT
                   </button>
                 </div>
+
               </div>
             </div>
           </header>
@@ -337,21 +392,34 @@ const App: React.FC = () => {
                   <BookOpen size={16} /> Tasks
                 </h3>
                 <div className="space-y-2 max-h-[50vh] overflow-y-auto">
-                  {filteredProblems.map(p => (
-                    <button
-                      key={p.id}
-                      onClick={() => setCurrentProblem(p)}
-                      className={`w-full text-left p-3 rounded-lg border ${p.id === currentProblem.id
-                          ? 'bg-indigo-50 border-indigo-500'
-                          : 'bg-gray-50'
-                        }`}
-                    >
-                      <div className="text-xs font-bold">{p.title}</div>
-                      <div className="text-[10px] uppercase font-bold text-indigo-600">
-                        {p.difficulty}
-                      </div>
-                    </button>
-                  ))}
+                  {filteredProblems.map(p => {
+                    const solved = userProfile.solvedProblemIds.includes(p.id);
+
+                    return (
+                      <button
+                        key={p.id}
+                        onClick={() => setCurrentProblem(p)}
+                        className={`w-full text-left p-3 rounded-lg border flex justify-between items-center ${p.id === currentProblem.id
+                            ? 'bg-indigo-50 border-indigo-500'
+                            : 'bg-gray-50'
+                          }`}
+                      >
+                        <div>
+                          <div className="text-xs font-bold">{p.title}</div>
+                          <div className="text-[10px] uppercase font-bold text-indigo-600">
+                            {p.difficulty}
+                          </div>
+                        </div>
+
+                        {solved && (
+                          <span className="text-emerald-600 font-bold text-sm">
+                            ✓
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+
                 </div>
               </div>
 
@@ -379,8 +447,8 @@ const App: React.FC = () => {
                       key={tab}
                       onClick={() => setActiveTab(tab as any)}
                       className={`px-6 py-3 text-xs font-bold uppercase border-b-2 ${activeTab === tab
-                          ? 'border-indigo-600 text-indigo-600'
-                          : 'border-transparent text-gray-400'
+                        ? 'border-indigo-600 text-indigo-600'
+                        : 'border-transparent text-gray-400'
                         }`}
                     >
                       {tab}
@@ -424,8 +492,8 @@ const App: React.FC = () => {
                       {(output || error) && (
                         <div
                           className={`mt-4 p-4 rounded-lg font-mono text-xs ${error
-                              ? 'bg-red-50 text-red-700'
-                              : 'bg-gray-900 text-gray-100'
+                            ? 'bg-red-50 text-red-700'
+                            : 'bg-gray-900 text-gray-100'
                             }`}
                         >
                           {error ? `ERROR: ${error}` : `OUTPUT: ${output}`}
