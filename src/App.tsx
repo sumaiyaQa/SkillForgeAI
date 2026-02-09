@@ -87,10 +87,13 @@ const App: React.FC = () => {
   //PROGRESS METRICS
 
   // Percentage of problems solved at current skill level
+  const solvedCount = userProfile.solvedProblemIds?.length ?? 0;
+
   const progressPercent =
     filteredProblems.length > 0
-      ? (userProfile.solvedProblemIds.length / filteredProblems.length) * 100
+      ? (solvedCount / filteredProblems.length) * 100
       : 0;
+
 
   // Submission success rate
   const successRate =
@@ -126,7 +129,11 @@ const App: React.FC = () => {
         const data = await res.json();
 
         if (data?.profile?.skillLevel) {
-          setUserProfile(data.profile);
+          setUserProfile({
+            ...initialUserProfile,
+            ...data.profile,
+            solvedProblemIds: data.profile.solvedProblemIds ?? [],
+          });
 
           const found = problemDatabase.find(p => p.id === data.last_problem_id);
           const start = found ?? filteredProblems[0];
@@ -400,8 +407,8 @@ const App: React.FC = () => {
                         key={p.id}
                         onClick={() => setCurrentProblem(p)}
                         className={`w-full text-left p-3 rounded-lg border flex justify-between items-center ${p.id === currentProblem.id
-                            ? 'bg-indigo-50 border-indigo-500'
-                            : 'bg-gray-50'
+                          ? 'bg-indigo-50 border-indigo-500'
+                          : 'bg-gray-50'
                           }`}
                       >
                         <div>
