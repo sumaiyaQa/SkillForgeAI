@@ -7,3 +7,9 @@ export interface Hint {
   scaffolding: number; // 1 = earliest, higher = more detailed
   concept: string;
 }
+
+export interface RuntimeHint {
+  content: string;
+  level?: BloomLevel;
+  source: 'ast' | 'problem';
+}

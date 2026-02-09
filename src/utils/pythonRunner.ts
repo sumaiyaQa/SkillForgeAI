@@ -1,5 +1,3 @@
-// Represents the result returned from the Python execution environment. The structure mirrors messages posted back from the Web Worker.
-
 export interface PythonResult {
   output: string;
   error: string;
@@ -9,27 +7,9 @@ export interface PythonResult {
   };
 }
 
-
-// A single shared Web Worker instance is reused across executions to avoid unnecessary reinitialisation cost.
- 
 let worker: Worker | null = null;
 
-// EXECUTION FUNCTION
-
-/**
- * Sends Python source code to the Web Worker and resolves
- * with the execution result.
- *
- * Important notes:
- * - This function does NOT perform grading or correctness checks
- * - It simply executes the code and returns raw output/errors
- * - All analysis and feedback logic is handled elsewhere
- *
- * This separation keeps concerns clear and the system
- * easy to reason about and extend.
- */
 export function runPython(code: string): Promise<PythonResult> {
-  // initialise the worker on first use
   if (!worker) {
     worker = new Worker(
       new URL('../workers/pythonWorker.js', import.meta.url),
@@ -37,15 +17,50 @@ export function runPython(code: string): Promise<PythonResult> {
     );
   }
 
-  return new Promise((resolve) => {
-  // Handle a single execution response.
-  // The worker posts back a structured PythonResult object.
-  
-    worker!.onmessage = (event) => {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+
+    const timeout = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        reject(
+          new Error(
+            'Python execution timed out. Worker did not respond.'
+          )
+        );
+      }
+    }, 10000);
+
+    const handleMessage = (event: MessageEvent) => {
+      if (settled) return;
+      settled = true;
+
+      clearTimeout(timeout);
+      worker!.removeEventListener('message', handleMessage);
+      worker!.removeEventListener('error', handleError);
+
       resolve(event.data as PythonResult);
     };
 
-    // Send the source code to the worker for execution
+    const handleError = (err: ErrorEvent) => {
+      if (settled) return;
+      settled = true;
+
+      clearTimeout(timeout);
+      worker!.removeEventListener('message', handleMessage);
+      worker!.removeEventListener('error', handleError);
+
+      reject(
+        new Error(
+          err.message ||
+            'Python worker crashed unexpectedly.'
+        )
+      );
+    };
+
+    worker!.addEventListener('message', handleMessage);
+    worker!.addEventListener('error', handleError);
+
     worker!.postMessage({ code });
   });
 }

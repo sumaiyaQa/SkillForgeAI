@@ -13,7 +13,7 @@ export interface Problem {
   difficulty: 'easy' | 'medium' | 'hard';
   description: string;
   starterCode: string;
-  testCases: Array<{ input: string; output: string }>;
+  exampleCases: Array<{ input: string; output: string }>;
   concepts: string[];
   hints: Hint[];
   visualization?: string;
@@ -30,7 +30,7 @@ export const problemDatabase: Problem[] = [
     difficulty: "easy",
     description: "Write a program that prints 'Hello, World!' to the console.",
     starterCode: "# Write your code here\n",
-    testCases: [{ input: "", output: "Hello, World!\n" }],
+    exampleCases: [{ input: "", output: "Hello, World!\n" }],
     concepts: ["print", "strings"],
     hints: [
       { id: 'hello-1', level: 'remember', scaffolding: 1, concept: 'print', content: 'Which function in Python shows text on the screen?' },
@@ -45,7 +45,7 @@ export const problemDatabase: Problem[] = [
     description: "Write a function that takes two numbers and returns their sum.",
     starterCode: "def sum_numbers(a, b):\n    # Write your code here\n    pass\n\nprint(sum_numbers(5, 3))",
     functionName: "sum_numbers",
-    testCases: [
+    exampleCases: [
       { input: "5, 3", output: "8\n" },
       { input: "10, -2", output: "8\n" }
     ],
@@ -63,7 +63,7 @@ export const problemDatabase: Problem[] = [
     description: "Write a function that finds the maximum number in a list.",
     starterCode: "def find_max(numbers):\n    # Write your code here\n    pass\n\nprint(find_max([3, 7, 2, 9, 1]))",
     functionName: "find_max",
-    testCases: [
+    exampleCases: [
       { input: "[3, 7, 2, 9, 1]", output: "9\n" },
       { input: "[-5, -2, -8]", output: "-2\n" }
     ],
@@ -81,7 +81,7 @@ export const problemDatabase: Problem[] = [
     description: "Write a function that reverses a string.",
     starterCode: "def reverse_string(text):\n    # Write your code here\n    pass\n\nprint(reverse_string('hello'))",
     functionName: "reverse_string",
-    testCases: [
+    exampleCases: [
       { input: "'hello'", output: "olleh\n" },
       { input: "'Python'", output: "nohtyP\n" }
     ],
@@ -99,7 +99,7 @@ export const problemDatabase: Problem[] = [
     description: "Count the number of vowels (a, e, i, o, u) in a string.",
     starterCode: "def count_vowels(text):\n    # Write your code here\n    pass\n\nprint(count_vowels('hello world'))",
     functionName: "count_vowels",
-    testCases: [
+    exampleCases: [
       { input: "'hello world'", output: "3\n" },
       { input: "'Python'", output: "1\n" }
     ],
@@ -117,7 +117,7 @@ export const problemDatabase: Problem[] = [
     description: "Calculate the factorial of a number (n! = n × (n-1) × ... × 1).",
     starterCode: "def factorial(n):\n    # Write your code here\n    pass\n\nprint(factorial(5))",
     functionName: "factorial",
-    testCases: [
+    exampleCases: [
       { input: "5", output: "120\n" },
       { input: "0", output: "1\n" }
     ],
@@ -136,7 +136,7 @@ export const problemDatabase: Problem[] = [
     description: "Implement bubble sort to sort a list of numbers.",
     starterCode: "def bubble_sort(arr):\n    # Write your code here\n    pass\n\nprint(bubble_sort([64, 34, 25, 12, 22]))",
     functionName: "bubble_sort",
-    testCases: [
+    exampleCases: [
       { input: "[64, 34, 25, 12, 22]", output: "[12, 22, 25, 34, 64]\n" }
     ],
     concepts: ["sorting", "nested loops", "swapping"],
@@ -154,7 +154,7 @@ export const problemDatabase: Problem[] = [
     description: "Implement binary search on a sorted list.",
     starterCode: "def binary_search(arr, target):\n    # Write your code here\n    pass\n\nprint(binary_search([1, 3, 5, 7, 9], 5))",
     functionName: "binary_search",
-    testCases: [
+    exampleCases: [
       { input: "[1, 3, 5, 7, 9], 5", output: "2\n" },
       { input: "[1, 3, 5, 7, 9], 10", output: "-1\n" }
     ],
@@ -173,7 +173,7 @@ export const problemDatabase: Problem[] = [
     description: "Generate the first n numbers in the Fibonacci sequence.",
     starterCode: "def fibonacci(n):\n    # Write your code here\n    pass\n\nprint(fibonacci(7))",
     functionName: "fibonacci",
-    testCases: [
+    exampleCases: [
       { input: "7", output: "[0, 1, 1, 2, 3, 5, 8]\n" }
     ],
     concepts: ["sequences", "loops", "math"],
@@ -190,7 +190,7 @@ export const problemDatabase: Problem[] = [
     description: "Check if a string reads the same forwards and backwards.",
     starterCode: "def is_palindrome(text):\n    # Write your code here\n    pass\n\nprint(is_palindrome('radar'))",
     functionName: "is_palindrome",
-    testCases: [
+    exampleCases: [
       { input: "'radar'", output: "True\n" },
       { input: "'hello'", output: "False\n" }
     ],
@@ -208,7 +208,7 @@ export const problemDatabase: Problem[] = [
     description: "Write a function that returns 'Fizz' if a number is divisible by 3, 'Buzz' if divisible by 5, and 'FizzBuzz' if divisible by both. Otherwise, return the number as a string.",
     starterCode: "def fizz_buzz(n):\n    # Write your code here\n    pass\n\nprint(fizz_buzz(15))",
     functionName: "fizz_buzz",
-    testCases: [
+    exampleCases: [
       { input: "15", output: "FizzBuzz\n" },
       { input: "3", output: "Fizz\n" },
       { input: "5", output: "Buzz\n" },
@@ -228,7 +228,7 @@ export const problemDatabase: Problem[] = [
     description: "Given a list of numbers, return a new list containing only the even numbers.",
     starterCode: "def get_evens(numbers):\n    # Write your code here\n    pass\n\nprint(get_evens([1, 2, 3, 4, 5, 6]))",
     functionName: "get_evens",
-    testCases: [{ input: "[1, 2, 3, 4, 5, 6]", output: "[2, 4, 6]\n" }],
+    exampleCases: [{ input: "[1, 2, 3, 4, 5, 6]", output: "[2, 4, 6]\n" }],
     concepts: ["lists", "filtering", "modulus"],
     hints: [
       { id: 'ev-1', level: 'remember', scaffolding: 1, concept: 'parity', content: 'An even number has a remainder of 0 when divided by 2.' },
@@ -243,7 +243,7 @@ export const problemDatabase: Problem[] = [
     description: "Count the occurrences of each word in a list and return a dictionary.",
     starterCode: "def word_count(words):\n    # Write your code here\n    pass\n\nprint(word_count(['apple', 'banana', 'apple']))",
     functionName: "word_count",
-    testCases: [{ input: "['apple', 'banana', 'apple']", output: "{'apple': 2, 'banana': 1}\n" }],
+    exampleCases: [{ input: "['apple', 'banana', 'apple']", output: "{'apple': 2, 'banana': 1}\n" }],
     concepts: ["dictionaries", "loops"],
     hints: [
       { id: 'wc-1', level: 'remember', scaffolding: 1, concept: 'dict-access', content: 'How do you check if a key already exists in a dictionary?' },
@@ -258,7 +258,7 @@ export const problemDatabase: Problem[] = [
     description: "Return True if a year is a leap year. (Divisible by 4, but not by 100 unless also divisible by 400).",
     starterCode: "def is_leap(year):\n    # Write your code here\n    pass\n\nprint(is_leap(2000))",
     functionName: "is_leap",
-    testCases: [
+    exampleCases: [
       { input: "2000", output: "True\n" },
       { input: "1900", output: "False\n" }
     ],
@@ -276,7 +276,7 @@ export const problemDatabase: Problem[] = [
     description: "Return the average of a list of numbers. Return 0 if the list is empty.",
     starterCode: "def get_average(numbers):\n    # Write your code here\n    pass\n\nprint(get_average([10, 20, 30]))",
     functionName: "get_average",
-    testCases: [{ input: "[10, 20, 30]", output: "20.0\n" }],
+    exampleCases: [{ input: "[10, 20, 30]", output: "20.0\n" }],
     concepts: ["math", "built-in-functions"],
     hints: [
       { id: 'avg-1', level: 'remember', scaffolding: 1, concept: 'formula', content: 'Average is the sum divided by the count.' },
@@ -291,7 +291,7 @@ export const problemDatabase: Problem[] = [
     description: "Given a list, return a new list with duplicates removed, preserving order.",
     starterCode: "def remove_dupes(items):\n    # Write your code here\n    pass\n\nprint(remove_dupes([1, 2, 2, 3, 1]))",
     functionName: "remove_dupes",
-    testCases: [{ input: "[1, 2, 2, 3, 1]", output: "[1, 2, 3]\n" }],
+    exampleCases: [{ input: "[1, 2, 2, 3, 1]", output: "[1, 2, 3]\n" }],
     concepts: ["sets", "lists", "membership"],
     hints: [
       { id: 'rd-1', level: 'remember', scaffolding: 1, concept: 'uniqueness', content: 'Which Python data type only allows unique elements?' },
@@ -306,7 +306,7 @@ export const problemDatabase: Problem[] = [
     description: "Return True if a number is prime, False otherwise.",
     starterCode: "def is_prime(n):\n    # Write your code here\n    pass\n\nprint(is_prime(11))",
     functionName: "is_prime",
-    testCases: [
+    exampleCases: [
       { input: "11", output: "True\n" },
       { input: "4", output: "False\n" },
       { input: "1", output: "False\n" }
@@ -325,7 +325,7 @@ export const problemDatabase: Problem[] = [
     description: "Check if two strings are anagrams (contain the same letters in different order).",
     starterCode: "def are_anagrams(s1, s2):\n    # Write your code here\n    pass\n\nprint(are_anagrams('listen', 'silent'))",
     functionName: "are_anagrams",
-    testCases: [{ input: "'listen', 'silent'", output: "True\n" }],
+    exampleCases: [{ input: "'listen', 'silent'", output: "True\n" }],
     concepts: ["strings", "sorting"],
     hints: [
       { id: 'an-1', level: 'remember', scaffolding: 1, concept: 'logic', content: 'If you sort the letters in both words, what should happen?' },
@@ -340,7 +340,7 @@ export const problemDatabase: Problem[] = [
     description: "Convert a list of lists into a single flat list.",
     starterCode: "def flatten(nested_list):\n    # Write your code here\n    pass\n\nprint(flatten([[1, 2], [3, 4]]))",
     functionName: "flatten",
-    testCases: [{ input: "[[1, 2], [3, 4]]", output: "[1, 2, 3, 4]\n" }],
+    exampleCases: [{ input: "[[1, 2], [3, 4]]", output: "[1, 2, 3, 4]\n" }],
     concepts: ["nested-loops", "lists"],
     hints: [
       { id: 'fl-1', level: 'remember', scaffolding: 1, concept: 'iteration', content: 'You need to loop through the outer list, and then loop through each sub-list.' },
@@ -355,7 +355,7 @@ export const problemDatabase: Problem[] = [
     description: "Return a list of elements that are common to two lists.",
     starterCode: "def intersect(list1, list2):\n    # Write your code here\n    pass\n\nprint(intersect([1, 2, 3], [2, 3, 4]))",
     functionName: "intersect",
-    testCases: [{ input: "[1, 2, 3], [2, 3, 4]", output: "[2, 3]\n" }],
+    exampleCases: [{ input: "[1, 2, 3], [2, 3, 4]", output: "[2, 3]\n" }],
     concepts: ["sets", "logic"],
     hints: [
       { id: 'in-1', level: 'remember', scaffolding: 1, concept: 'sets', content: 'Sets have a built-in \"intersection\" method.' },
@@ -370,7 +370,7 @@ export const problemDatabase: Problem[] = [
     description: "Capitalize the first letter of every word in a string.",
     starterCode: "def capitalize_all(text):\n    # Write your code here\n    pass\n\nprint(capitalize_all('hello world'))",
     functionName: "capitalize_all",
-    testCases: [{ input: "'hello world'", output: "Hello World\n" }],
+    exampleCases: [{ input: "'hello world'", output: "Hello World\n" }],
     concepts: ["strings", "methods"],
     hints: [
       { id: 'cap-1', level: 'remember', scaffolding: 1, concept: 'built-in', content: 'Python has a string method specifically for this.' },
@@ -385,7 +385,7 @@ export const problemDatabase: Problem[] = [
     description: "Write a function that calculates base raised to the power of exp without using the ** operator.",
     starterCode: "def power(base, exp):\n    # Write your code here\n    pass\n\nprint(power(2, 3))",
     functionName: "power",
-    testCases: [{ input: "2, 3", output: "8\n" }],
+    exampleCases: [{ input: "2, 3", output: "8\n" }],
     concepts: ["loops", "accumulation"],
     hints: [
       { id: 'pw-1', level: 'remember', scaffolding: 1, concept: 'math', content: '2 to the power of 3 is 2 * 2 * 2.' },
@@ -400,7 +400,7 @@ export const problemDatabase: Problem[] = [
     description: "Given a sentence, return the longest word.",
     starterCode: "def longest_word(sentence):\n    # Write your code here\n    pass\n\nprint(longest_word('Python is amazing'))",
     functionName: "longest_word",
-    testCases: [{ input: "'Python is amazing'", output: "amazing\n" }],
+    exampleCases: [{ input: "'Python is amazing'", output: "amazing\n" }],
     concepts: ["strings", "max", "splitting"],
     hints: [
       { id: 'lw-1', level: 'remember', scaffolding: 1, concept: 'split', content: 'How do you turn a sentence into a list of words?' },
@@ -415,7 +415,7 @@ export const problemDatabase: Problem[] = [
     description: "Merge two dictionaries. If a key exists in both, the second dictionary's value should be used.",
     starterCode: "def merge_dicts(d1, d2):\n    # Write your code here\n    pass\n\nprint(merge_dicts({'a': 1}, {'b': 2}))",
     functionName: "merge_dicts",
-    testCases: [{ input: "{'a': 1}, {'a': 2, 'b': 3}", output: "{'a': 2, 'b': 3}\n" }],
+    exampleCases: [{ input: "{'a': 1}, {'a': 2, 'b': 3}", output: "{'a': 2, 'b': 3}\n" }],
     concepts: ["dictionaries", "updates"],
     hints: [
       { id: 'md-1', level: 'remember', scaffolding: 1, concept: 'methods', content: 'Dictionaries have an .update() method.' },
@@ -430,7 +430,7 @@ export const problemDatabase: Problem[] = [
     description: "Calculate the sum of digits of a positive integer.",
     starterCode: "def sum_digits(n):\n    # Write your code here\n    pass\n\nprint(sum_digits(123))",
     functionName: "sum_digits",
-    testCases: [{ input: "123", output: "6\n" }],
+    exampleCases: [{ input: "123", output: "6\n" }],
     concepts: ["math", "type-conversion", "loops"],
     hints: [
       { id: 'sd-1', level: 'remember', scaffolding: 1, concept: 'conversion', content: 'How can you iterate over the characters of a number?' },
@@ -447,7 +447,7 @@ export const problemDatabase: Problem[] = [
     starterCode:
       "def is_balanced(s):\n    # Write your code here\n    pass\n\nprint(is_balanced('{[()]}'))",
     functionName: 'is_balanced',
-    testCases: [
+    exampleCases: [
       { input: "'{[()]}'", output: 'True\n' },
       { input: "'{[(])}'", output: 'False\n' },
       { input: "'((())'", output: 'False\n' },
@@ -490,7 +490,7 @@ export const problemDatabase: Problem[] = [
     starterCode:
       'def second_largest(numbers):\n    # Write your code here\n    pass\n\nprint(second_largest([10, 5, 20, 8]))',
     functionName: 'second_largest',
-    testCases: [
+    exampleCases: [
       { input: '[10, 5, 20, 8]', output: '10\n' },
       { input: '[1, 3, 2]', output: '2\n' },
     ],
@@ -532,7 +532,7 @@ export const problemDatabase: Problem[] = [
     starterCode:
       'def rotate_list(nums, k):\n    # Write your code here\n    pass\n\nprint(rotate_list([1, 2, 3, 4, 5], 2))',
     functionName: 'rotate_list',
-    testCases: [
+    exampleCases: [
       { input: '[1, 2, 3, 4, 5], 2', output: '[4, 5, 1, 2, 3]\n' },
       { input: '[1, 2], 3', output: '[2, 1]\n' },
     ],
@@ -574,7 +574,7 @@ export const problemDatabase: Problem[] = [
     starterCode:
       "def remove_adjacent(s):\n    # Write your code here\n    pass\n\nprint(remove_adjacent('aabbccdde'))",
     functionName: 'remove_adjacent',
-    testCases: [
+    exampleCases: [
       { input: "'aabbccdde'", output: 'abcde\n' },
       { input: "'aaabbb'", output: 'ab\n' },
     ],
@@ -616,7 +616,7 @@ export const problemDatabase: Problem[] = [
     starterCode:
       'def find_missing(nums, n):\n    # Write your code here\n    pass\n\nprint(find_missing([1, 2, 4, 5], 5))',
     functionName: 'find_missing',
-    testCases: [
+    exampleCases: [
       { input: '[1, 2, 4, 5], 5', output: '3\n' },
       { input: '[2, 3, 1, 5], 5', output: '4\n' },
     ],
@@ -649,3 +649,14 @@ export const problemDatabase: Problem[] = [
     ],
   },
 ];
+
+export function getNextProblem(
+  currentId: number,
+  pool: Problem[]
+): Problem | null {
+  const index = pool.findIndex(p => p.id === currentId);
+  if (index === -1 || index === pool.length - 1) {
+    return null;
+  }
+  return pool[index + 1];
+}

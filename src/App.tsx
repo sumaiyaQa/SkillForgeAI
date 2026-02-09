@@ -1,9 +1,4 @@
-import React, {
-  useEffect,
-  useState,
-  useCallback,
-  useMemo,
-} from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   Play,
   RefreshCw,
@@ -11,25 +6,18 @@ import {
   Eye,
   Code2,
   Zap,
-  Download,
+  Download
 } from 'lucide-react';
-
 import { problemDatabase, type Problem } from './utils/problemDatabase';
 import { runPython } from './utils/pythonRunner';
 import { exportStudyData } from './utils/study';
-
 import FactorialVisualizer from './components/visualizers/FactorialVisualizer';
 import BubbleSortVisualizer from './components/visualizers/BubbleSortVisualizer';
 import BinarySearchVisualizer from './components/visualizers/BinarySearchVisualizer';
-
 import CodeEditor from './components/CodeEditor';
 import Login from './components/Login';
 import AdminDashboard from './components/AdminDashboard';
 import SUSSurvey from './components/SUSSurvey';
-
-// TYPES
-
-// Represents the adaptive learner profile that is persisted between sessions.
 
 interface UserProfile {
   skillLevel: 'beginner' | 'intermediate' | 'advanced';
@@ -45,14 +33,11 @@ interface UserProfile {
   weaknesses: string[];
 }
 
-// Represents the authenticated user session.
-
 interface AuthUser {
   token: string;
-  role: 'student' | 'admin';
-}
+  role?: 'student' | 'admin';
 
-// DEFAULT STATE
+}
 
 const initialUserProfile: UserProfile = {
   skillLevel: 'beginner',
@@ -68,218 +53,180 @@ const initialUserProfile: UserProfile = {
   weaknesses: [],
 };
 
-// APP ROOT
-
 const App: React.FC = () => {
-// AUTH
-
+  const [userProfile, setUserProfile] = useState<UserProfile>(initialUserProfile);
+  const [view, setView] = useState<'student' | 'admin'>('student');
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
+  const [showSurvey, setShowSurvey] = useState(false);
+  const [finalSUSScore, setFinalSUSScore] = useState<number | null>(null);
 
-// STUDENT STATE
+// Adaptive filtering
+  const filteredProblems = useMemo(() => {
+    return problemDatabase.filter(p => {
+      if (userProfile.skillLevel === 'beginner') return p.difficulty === 'easy';
+      if (userProfile.skillLevel === 'intermediate') return p.difficulty !== 'hard';
+      return true;
+    });
+  }, [userProfile.skillLevel]);
 
-  const [userProfile, setUserProfile] =
-    useState<UserProfile>(initialUserProfile);
-
-  const [currentProblem, setCurrentProblem] =
-    useState<Problem>(problemDatabase[0]);
-
-  const [code, setCode] = useState(currentProblem.starterCode);
+  const [currentProblem, setCurrentProblem] = useState<Problem>(problemDatabase[0]);
+  const [code, setCode] = useState<string>(currentProblem.starterCode);
   const [output, setOutput] = useState('');
   const [error, setError] = useState('');
   const [hints, setHints] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
-
-  const [activeTab, setActiveTab] =
-    useState<'code' | 'visualization'>('code');
-
-  const [sessionStartTime, setSessionStartTime] =
-    useState<number | null>(null);
-
+  const [activeTab, setActiveTab] = useState<'code' | 'visualization'>('code');
+  const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
-// SUS
-
-  const [showSurvey, setShowSurvey] = useState(false);
-  const [finalSUSScore, setFinalSUSScore] =
-    useState<number | null>(null);
-
-  const isAdmin = authUser?.role === 'admin';
-
-//  AUTH INITIALISATION
-
-// Restores authentication state from localStorage.
-// This avoids forcing users to log in again on refresh.
-
+// Auth
   useEffect(() => {
-    const raw = localStorage.getItem('skillforge:auth');
+    const raw = localStorage.getItem("skillforge:auth");
     if (raw) {
       setAuthUser(JSON.parse(raw));
     }
     setAuthChecked(true);
   }, []);
 
-// PROBLEM FILTERING (ADAPTIVE)
 
-// Filters available problems based on the user's inferred skill level.
-   
-  const filteredProblems = useMemo(() => {
-    if (userProfile.skillLevel === 'beginner') {
-      return problemDatabase.filter(p => p.difficulty === 'easy');
-    }
-    if (userProfile.skillLevel === 'intermediate') {
-      return problemDatabase.filter(p => p.difficulty !== 'hard');
-    }
-    return problemDatabase;
-  }, [userProfile.skillLevel]);
 
-// LOAD SAVED PROGRESS
 
+// Load progress
   useEffect(() => {
-    if (!authUser || isAdmin) return;
+    if (!authUser) return;
 
     const loadProgress = async () => {
-      const res = await fetch('http://localhost:4000/progress', {
-        headers: {
-          Authorization: `Bearer ${authUser.token}`,
-        },
-      });
+      try {
+        const res = await fetch('http://localhost:4000/progress', {
+          headers: { Authorization: `Bearer ${authUser.token}` },
+        });
+        const data = await res.json();
 
-      const data = await res.json();
+        if (data?.profile?.skillLevel) {
+          setUserProfile(data.profile);
 
-      if (data?.profile) {
-        setUserProfile(data.profile);
+          const found = problemDatabase.find(p => p.id === data.last_problem_id);
+          const start = found ?? filteredProblems[0];
 
-        const last =
-          problemDatabase.find(p => p.id === data.last_problem_id) ??
-          filteredProblems[0];
-
-        setCurrentProblem(last);
-        setCode(data.last_code ?? last.starterCode);
-        setSessionStartTime(Date.now());
+          setCurrentProblem(start);
+          setCode(data.last_code ?? start.starterCode);
+        }
+      } catch (err) {
+        console.error('Failed to load progress', err);
       }
     };
 
     loadProgress();
-  }, [authUser, filteredProblems, isAdmin]);
+  }, [authUser, filteredProblems]);
 
-// SUS SURVEY TRIGGER
+// SUS Survey
   useEffect(() => {
     if (userProfile.problemsSolved >= 3 && !finalSUSScore) {
       setShowSurvey(true);
     }
   }, [userProfile.problemsSolved, finalSUSScore]);
 
-// AUTOSAVE
-
-// Persists user progress to the backend.
-// Debounced to avoid excessive network traffic
+// Autosave
   const saveProgress = useCallback(async () => {
-    if (!authUser || isSaving || isAdmin) return;
-
+    if (!authUser || isSaving) return;
     setIsSaving(true);
-
-    await fetch('http://localhost:4000/progress', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${authUser.token}`,
-      },
-      body: JSON.stringify({
-        profile: userProfile,
-        lastProblemId: currentProblem.id,
-        lastCode: code,
-      }),
-    });
-
-    setIsSaving(false);
-  }, [
-    authUser,
-    userProfile,
-    currentProblem.id,
-    code,
-    isSaving,
-    isAdmin,
-  ]);
+    try {
+      await fetch('http://localhost:4000/progress', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authUser.token}`,
+        },
+        body: JSON.stringify({
+          profile: userProfile,
+          lastProblemId: currentProblem.id,
+          lastCode: code,
+        }),
+      });
+    } catch (err) {
+      console.error('Save failed', err);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [authUser, userProfile, currentProblem.id, code, isSaving]);
 
   useEffect(() => {
-    if (!authUser || !sessionStartTime || isAdmin) return;
-    const t = setTimeout(saveProgress, 2000);
-    return () => clearTimeout(t);
-  }, [code, userProfile.problemsSolved, saveProgress, isAdmin]);
+    if (authUser && sessionStartTime) {
+      const t = setTimeout(saveProgress, 2000);
+      return () => clearTimeout(t);
+    }
+  }, [code, userProfile.problemsSolved, saveProgress, authUser, sessionStartTime]);
 
-// CODE EXECUTION
+  // Reset on problem change
+  useEffect(() => {
+    setCode(currentProblem.starterCode);
+    setOutput('');
+    setError('');
+    setHints([]);
+    setSessionStartTime(Date.now());
+  }, [currentProblem]);
+
+// Run code
   const handleRunCode = async () => {
+    if (!sessionStartTime) setSessionStartTime(Date.now());
+
+    setUserProfile(prev => ({
+      ...prev,
+      totalSubmissions: prev.totalSubmissions + 1,
+    }));
+
     setRunning(true);
     setOutput('');
     setError('');
     setHints([]);
 
-    setUserProfile(p => ({
-      ...p,
-      totalSubmissions: p.totalSubmissions + 1,
-    }));
+    try {
+      const res = await runPython(code);
 
-    const res = await runPython(code);
+      setOutput(res.output || '');
+      setError(res.error || '');
+      setHints(res.hints || []);
+      const expected = currentProblem.exampleCases[0]?.output?.trim();
+      const actual = res.output?.trim();
+      if (!res.error && expected === actual) {
+        const solveTime = (Date.now() - sessionStartTime!) / 1000;
+        const hasCritical = res.hints?.some(h => h.includes('🚨'));
 
-    setOutput(res.output || '');
-    setError(res.error || '');
-    setHints(res.hints || []);
-
-    if (!res.error) {
-      const solveTime =
-        (Date.now() - (sessionStartTime ?? Date.now())) / 1000;
-
-      const hasCritical =
-        res.hints?.some(h => h.includes('🚨'));
-
-      setUserProfile(p => ({
-        ...p,
-        successfulSubmissions: p.successfulSubmissions + 1,
-        problemsSolved: hasCritical
-          ? p.problemsSolved
-          : p.problemsSolved + 1,
-        lastSolveTimeSeconds: solveTime,
-        totalSolveTimeSeconds:
-          p.totalSolveTimeSeconds + solveTime,
-        averageSolveTimeSeconds:
-          (p.totalSolveTimeSeconds + solveTime) /
-          Math.max(1, p.problemsSolved + 1),
-      }));
+        setUserProfile(prev => ({
+          ...prev,
+          successfulSubmissions: prev.successfulSubmissions + 1,
+          problemsSolved: hasCritical
+            ? prev.problemsSolved
+            : prev.problemsSolved + 1,
+          lastSolveTimeSeconds: solveTime,
+          totalSolveTimeSeconds: prev.totalSolveTimeSeconds + solveTime,
+          averageSolveTimeSeconds:
+            (prev.totalSolveTimeSeconds + solveTime) /
+            Math.max(1, prev.problemsSolved + 1),
+        }));
+      }
+    } catch (err) {
+      setError('Runtime Error: ' + String(err));
     }
 
     setRunning(false);
   };
 
-// LOGOUT
+//  Recommend next problem 
+  const recommendNextProblem = () => {
+    const idx = filteredProblems.findIndex(p => p.id === currentProblem.id);
+    const next = filteredProblems[idx + 1];
+    if (next) setCurrentProblem(next);
+  };
 
   const handleLogout = () => {
     localStorage.removeItem('skillforge:auth');
     setAuthUser(null);
   };
 
-// GUARDS
-
-  if (!authChecked) {
-    return <div className="p-6">Initializing…</div>;
-  }
-
-  if (!authUser) {
-    return (
-      <Login
-        onLogin={auth => {
-          localStorage.setItem(
-            'skillforge:auth',
-            JSON.stringify(auth)
-          );
-          setAuthUser(auth);
-        }}
-      />
-    );
-  }
-
- 
-  // RENDER
+  if (!authChecked) return <div className="p-6 font-mono">Initializing…</div>;
+  if (!authUser) return <Login onLogin={(auth) => setAuthUser({ token: auth.token, role: auth.role })} />;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -292,14 +239,203 @@ const App: React.FC = () => {
         />
       )}
 
-      {/* Admin users never see the student interface */}
-      {isAdmin ? (
+      {view === 'admin' ? (
         <AdminDashboard token={authUser.token} />
       ) : (
-        <div className="p-6">
-          {/* Student UI would normally render here */}
-          App Loaded Successfully
-        </div>
+        <>
+          {/* HEADER */}
+          <header className="bg-white border-b shadow-sm sticky top-0 z-10">
+            <div className="max-w-7xl mx-auto px-6 py-4 flex justify-between">
+              <div className="flex gap-3 items-center">
+                <div className="bg-indigo-600 p-2 rounded-lg">
+                  <Code2 className="text-white" size={24} />
+                </div>
+                <div>
+                  <h1 className="font-bold text-xl">SkillForge AI</h1>
+                  <p className="text-xs text-gray-500 uppercase">Adaptive Tutor</p>
+                </div>
+              </div>
+
+              <div className="flex gap-6 items-center">
+                <button
+                  onClick={exportStudyData}
+                  className="flex gap-2 text-xs font-bold bg-amber-100 text-amber-700 px-3 py-1 rounded"
+                >
+                  <Download size={12} /> EXPORT
+                </button>
+                {authUser.role === 'admin' && (
+                  <button
+                    onClick={() => setView('admin')}
+                    className="text-xs font-bold text-indigo-600 border px-3 py-1 rounded-full"
+                  >
+                    Admin
+                  </button>
+                )}
+
+                <div className="border-l pl-6 flex gap-6">
+                  <div className="text-center">
+                    <div className="text-[10px] text-gray-400 font-bold">LEVEL</div>
+                    <div className="font-bold text-indigo-600 capitalize">
+                      {userProfile.skillLevel}
+                    </div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-[10px] text-gray-400 font-bold">SOLVED</div>
+                    <div className="font-bold">{userProfile.problemsSolved}</div>
+                  </div>
+                  <button
+                    onClick={handleLogout}
+                    className="text-xs font-semibold text-red-500"
+                  >
+                    LOGOUT
+                  </button>
+                </div>
+              </div>
+            </div>
+          </header>
+
+          {/* MAIN */}
+          <main className="max-w-7xl mx-auto px-6 py-8 grid grid-cols-12 gap-8">
+            {/* Sidebar */}
+            <div className="col-span-3 space-y-6">
+              <div className="bg-white p-4 rounded-xl border">
+                <h3 className="text-sm font-bold mb-4 flex gap-2 items-center">
+                  <BookOpen size={16} /> Tasks
+                </h3>
+                <div className="space-y-2 max-h-[50vh] overflow-y-auto">
+                  {filteredProblems.map(p => (
+                    <button
+                      key={p.id}
+                      onClick={() => setCurrentProblem(p)}
+                      className={`w-full text-left p-3 rounded-lg border ${p.id === currentProblem.id
+                          ? 'bg-indigo-50 border-indigo-500'
+                          : 'bg-gray-50'
+                        }`}
+                    >
+                      <div className="text-xs font-bold">{p.title}</div>
+                      <div className="text-[10px] uppercase font-bold text-indigo-600">
+                        {p.difficulty}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <button
+                onClick={recommendNextProblem}
+                className="w-full bg-indigo-600 text-white p-4 rounded-xl font-bold flex justify-center gap-2"
+              >
+                <Zap size={16} /> NEXT PROBLEM
+              </button>
+            </div>
+
+            {/* Editor */}
+            <div className="col-span-9 space-y-6">
+              <div className="bg-white p-6 rounded-xl border">
+                <h2 className="text-2xl font-black">{currentProblem.title}</h2>
+                <p className="text-sm text-gray-600 mt-2">
+                  {currentProblem.description}
+                </p>
+              </div>
+
+              <div className="bg-white rounded-xl border overflow-hidden">
+                <div className="bg-gray-50 border-b px-4 flex">
+                  {['code', 'visualization'].map(tab => (
+                    <button
+                      key={tab}
+                      onClick={() => setActiveTab(tab as any)}
+                      className={`px-6 py-3 text-xs font-bold uppercase border-b-2 ${activeTab === tab
+                          ? 'border-indigo-600 text-indigo-600'
+                          : 'border-transparent text-gray-400'
+                        }`}
+                    >
+                      {tab}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="p-6">
+                  {activeTab === 'code' ? (
+                    <>
+                      <CodeEditor code={code} onChange={setCode} />
+
+                      <div className="flex gap-4 mt-6">
+                        <button
+                          onClick={handleRunCode}
+                          disabled={running}
+                          className="flex-1 bg-emerald-600 text-white py-3 rounded-lg font-bold flex justify-center gap-2"
+                        >
+                          {running ? (
+                            <RefreshCw className="animate-spin" size={18} />
+                          ) : (
+                            <Play size={18} />
+                          )}
+                          RUN CODE
+                        </button>
+                      </div>
+
+                      {hints.length > 0 && (
+                        <div className="bg-amber-50 border-l-4 border-amber-400 p-4 rounded-r-lg mt-4">
+                          <h3 className="font-bold text-amber-800 mb-2">💡 Hints</h3>
+                          <ul className="space-y-1">
+                            {hints.map((h, i) => (
+                              <li key={i} className="text-sm text-amber-700">
+                                {h}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {(output || error) && (
+                        <div
+                          className={`mt-4 p-4 rounded-lg font-mono text-xs ${error
+                              ? 'bg-red-50 text-red-700'
+                              : 'bg-gray-900 text-gray-100'
+                            }`}
+                        >
+                          {error ? `ERROR: ${error}` : `OUTPUT: ${output}`}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="min-h-[400px] flex justify-center items-center">
+                      {currentProblem.visualization === 'factorial' && (
+                        <FactorialVisualizer initialN={5} />
+                      )}
+                      {currentProblem.visualization === 'bubbleSort' && (
+                        <BubbleSortVisualizer initialArray="[64,34,25,12,22]" />
+                      )}
+                      {currentProblem.visualization === 'binarySearch' && (
+                        <BinarySearchVisualizer
+                          initialArray="[1,3,5,7,9]"
+                          initialTarget={5}
+                        />
+                      )}
+                      {!currentProblem.visualization && (
+                        <div className="opacity-30 text-center">
+                          <Eye size={48} className="mx-auto mb-2" />
+                          <p className="text-xs font-bold uppercase">
+                            No Visualizer
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </main>
+        </>
+      )}
+
+      {view === 'admin' && (
+        <button
+          onClick={() => setView('student')}
+          className="fixed bottom-6 right-6 bg-indigo-600 text-white px-4 py-2 rounded-full font-bold"
+        >
+          Back to Student
+        </button>
       )}
     </div>
   );

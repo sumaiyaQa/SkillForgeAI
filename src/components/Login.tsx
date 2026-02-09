@@ -2,9 +2,20 @@ import { useState } from "react";
 import { Code2 } from "lucide-react";
 import PlacementQuiz from "./PlacementQuiz";
 
-interface Props {
-  onLogin: (token: string) => void;
+// TYPES
+    
+
+interface AuthPayload {
+  token: string;
+  role: "student" | "admin";
 }
+
+interface Props {
+  onLogin: (auth: AuthPayload) => void;
+}
+
+// LOGIN COMPONENT
+    
 
 export default function Login({ onLogin }: Props) {
   const [email, setEmail] = useState("");
@@ -14,18 +25,19 @@ export default function Login({ onLogin }: Props) {
   const [isRegistering, setIsRegistering] = useState(false);
   const [showQuiz, setShowQuiz] = useState(false);
 
-  // Temporarily store credentials during quiz
+  // Temporarily store credentials during placement quiz
   const [tempCredentials, setTempCredentials] = useState<{
     email: string;
     password: string;
   } | null>(null);
 
-  /* ================= LOGIN / REGISTER ================= */
+  // LOGIN / REGISTER
+      
 
   const handleSubmit = async () => {
     setError("");
 
-    // Step 1: Registration → Placement Quiz
+    // Registration, Placement Quiz
     if (isRegistering && !showQuiz) {
       if (!email || !password) {
         setError("Please enter both email and password.");
@@ -52,20 +64,20 @@ export default function Login({ onLogin }: Props) {
         return;
       }
 
-      // Store structured auth object
-      const auth = {
+      const auth: AuthPayload = {
         token: data.token,
         role: data.role || "student",
       };
 
-      localStorage.setItem("skillforge:auth", JSON.stringify(auth));
-      onLogin(auth.token);
+localStorage.setItem("skillforge:token", JSON.stringify(auth));
+      onLogin(auth); //pass full auth object
     } catch {
       setError("Server error. Please check if the backend is running.");
     }
   };
 
-  /* ================= QUIZ COMPLETE ================= */
+  // PLACEMENT QUIZ COMPLETE
+      
 
   const handleQuizComplete = async (level: string) => {
     if (!tempCredentials) {
@@ -75,7 +87,7 @@ export default function Login({ onLogin }: Props) {
     }
 
     try {
-      // Register with skill level
+      // Register user with skill level
       const registerRes = await fetch("http://localhost:4000/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -111,19 +123,20 @@ export default function Login({ onLogin }: Props) {
         return;
       }
 
-      const auth = {
+      const auth: AuthPayload = {
         token: loginData.token,
         role: loginData.role || "student",
       };
 
-      localStorage.setItem("skillforge:auth", JSON.stringify(auth));
-      onLogin(auth.token);
+localStorage.setItem("skillforge:token", JSON.stringify(auth));
+      onLogin(auth); // pass full auth object
     } catch {
       setError("Failed to complete registration.");
     }
   };
 
-  /* ================= UI ================= */
+  // UI
+      
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
@@ -136,7 +149,9 @@ export default function Login({ onLogin }: Props) {
             <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-2 rounded-lg">
               <Code2 className="text-white" size={24} />
             </div>
-            <h1 className="text-2xl font-bold text-gray-900">SkillForge AI</h1>
+            <h1 className="text-2xl font-bold text-gray-900">
+              SkillForge AI
+            </h1>
           </div>
 
           <h2 className="text-xl font-semibold text-gray-800 mb-6 text-center">
