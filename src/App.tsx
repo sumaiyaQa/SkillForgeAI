@@ -22,6 +22,7 @@ import SUSSurvey from './components/SUSSurvey';
 interface UserProfile {
   skillLevel: 'beginner' | 'intermediate' | 'advanced';
   problemsSolved: number;
+  solvedProblemIds: number[]; 
   hintsUsed: number;
   totalSubmissions: number;
   successfulSubmissions: number;
@@ -42,6 +43,7 @@ interface AuthUser {
 const initialUserProfile: UserProfile = {
   skillLevel: 'beginner',
   problemsSolved: 0,
+  solvedProblemIds: [],
   hintsUsed: 0,
   totalSubmissions: 0,
   successfulSubmissions: 0,
@@ -168,50 +170,82 @@ const App: React.FC = () => {
   }, [currentProblem]);
 
 // Run code
-  const handleRunCode = async () => {
-    if (!sessionStartTime) setSessionStartTime(Date.now());
+ const handleRunCode = async () => {
+  if (!sessionStartTime) setSessionStartTime(Date.now());
 
+  setRunning(true);
+  setOutput('');
+  setError('');
+  setHints([]);
+
+  try {
+    const res = await runPython(code);
+
+    setOutput(res.output || '');
+    setError(res.error || '');
+    setHints(res.hints || []);
+
+    // Count every attempt
     setUserProfile(prev => ({
       ...prev,
       totalSubmissions: prev.totalSubmissions + 1,
     }));
 
-    setRunning(true);
-    setOutput('');
-    setError('');
-    setHints([]);
-
-    try {
-      const res = await runPython(code);
-
-      setOutput(res.output || '');
-      setError(res.error || '');
-      setHints(res.hints || []);
-      const expected = currentProblem.exampleCases[0]?.output?.trim();
-      const actual = res.output?.trim();
-      if (!res.error && expected === actual) {
-        const solveTime = (Date.now() - sessionStartTime!) / 1000;
-        const hasCritical = res.hints?.some(h => h.includes('🚨'));
-
-        setUserProfile(prev => ({
-          ...prev,
-          successfulSubmissions: prev.successfulSubmissions + 1,
-          problemsSolved: hasCritical
-            ? prev.problemsSolved
-            : prev.problemsSolved + 1,
-          lastSolveTimeSeconds: solveTime,
-          totalSolveTimeSeconds: prev.totalSolveTimeSeconds + solveTime,
-          averageSolveTimeSeconds:
-            (prev.totalSolveTimeSeconds + solveTime) /
-            Math.max(1, prev.problemsSolved + 1),
-        }));
-      }
-    } catch (err) {
-      setError('Runtime Error: ' + String(err));
+    // Stop if execution failed
+    if (res.error) {
+      setRunning(false);
+      return;
     }
 
-    setRunning(false);
-  };
+    const expected = currentProblem.exampleCases?.[0]?.output?.trim();
+    const actual = res.output?.trim();
+
+    if (expected === actual) {
+      const solveTime =
+        (Date.now() - (sessionStartTime ?? Date.now())) / 1000;
+
+      setUserProfile(prev => {
+        const alreadySolved = prev.solvedProblemIds.includes(
+          currentProblem.id
+        );
+
+        const hasCritical = res.hints?.some(h =>
+          h.includes('🚨')
+        );
+
+        if (hasCritical) return prev;
+
+        const newSolved = !alreadySolved
+          ? [...prev.solvedProblemIds, currentProblem.id]
+          : prev.solvedProblemIds;
+
+        const newProblemsSolved = !alreadySolved
+          ? prev.problemsSolved + 1
+          : prev.problemsSolved;
+
+        const newTotalSolveTime =
+          prev.totalSolveTimeSeconds + solveTime;
+
+        return {
+          ...prev,
+          successfulSubmissions: prev.successfulSubmissions + 1,
+          problemsSolved: newProblemsSolved,
+          solvedProblemIds: newSolved,
+          lastSolveTimeSeconds: solveTime,
+          totalSolveTimeSeconds: newTotalSolveTime,
+          averageSolveTimeSeconds:
+            newTotalSolveTime /
+            Math.max(1, newProblemsSolved),
+        };
+      });
+    }
+  } catch (err) {
+    setError('Runtime Error: ' + String(err));
+  }
+
+  setRunning(false);
+};
+
 
 //  Recommend next problem 
   const recommendNextProblem = () => {
