@@ -11,12 +11,14 @@ import {
 import { problemDatabase, type Problem } from './utils/problemDatabase';
 import { runPython } from './utils/pythonRunner';
 import { exportStudyData } from './utils/study';
-import FactorialVisualizer from './components/visualizers/FactorialVisualizer';
-import BubbleSortVisualizer from './components/visualizers/BubbleSortVisualizer';
-import BinarySearchVisualizer from './components/visualizers/BinarySearchVisualizer';
-import CodeEditor from './components/CodeEditor';
-import Login from './components/Login';
-import AdminDashboard from './components/AdminDashboard';
+
+import FactorialVisualizer from './components/student/visualizers/FactorialVisualizer';
+import BubbleSortVisualizer from './components/student/visualizers/BubbleSortVisualizer';
+import BinarySearchVisualizer from './components/student/visualizers/BinarySearchVisualizer';
+
+import CodeEditor from './components/student/CodeEditor';
+import Login from './components/auth/Login';
+import AdminDashboard from './components/admin/AdminDashboard';
 import SUSSurvey from './components/SUSSurvey';
 
 interface UserProfile {
@@ -32,11 +34,22 @@ interface UserProfile {
   errorPatterns: Record<string, number>;
   strengths: string[];
   weaknesses: string[];
+  conceptMastery: Record<string, number>;
+  learningTrajectory: Array<{
+    timestamp: number;
+    overallMastery: number;
+  }>;
+
+  errorHistory: Array<{
+    timestamp: number;
+    errorType: string;
+  }>;
+
 }
 
 interface AuthUser {
   token: string;
-  role?: 'student' | 'admin';
+  role: 'student' | 'admin';
 
 }
 
@@ -53,6 +66,10 @@ const initialUserProfile: UserProfile = {
   errorPatterns: {},
   strengths: [],
   weaknesses: [],
+  conceptMastery: {},
+  learningTrajectory: [],
+  errorHistory: [],
+
 };
 
 const App: React.FC = () => {
@@ -62,15 +79,34 @@ const App: React.FC = () => {
   const [authChecked, setAuthChecked] = useState(false);
   const [showSurvey, setShowSurvey] = useState(false);
   const [finalSUSScore, setFinalSUSScore] = useState<number | null>(null);
+  const [failureCount, setFailureCount] = useState(0);
+
+  const [feedbackRating, setFeedbackRating] = useState<number | null>(null);
+  const [feedbackComment, setFeedbackComment] = useState('');
+  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+
+
 
   // Adaptive filtering
-  const filteredProblems = useMemo(() => {
-    return problemDatabase.filter(p => {
-      if (userProfile.skillLevel === 'beginner') return p.difficulty === 'easy';
-      if (userProfile.skillLevel === 'intermediate') return p.difficulty !== 'hard';
-      return true;
-    });
-  }, [userProfile.skillLevel]);
+  const recommendedProblems = useMemo(() => {
+    return problemDatabase
+      .filter(p => !userProfile.solvedProblemIds.includes(p.id))
+      .sort((a, b) => {
+        const scoreA = a.concepts.reduce(
+          (sum, c) => sum + (userProfile.conceptMastery[c] ?? 0.5),
+          0
+        ) / a.concepts.length;
+
+        const scoreB = b.concepts.reduce(
+          (sum, c) => sum + (userProfile.conceptMastery[c] ?? 0.5),
+          0
+        ) / b.concepts.length;
+
+        return scoreA - scoreB; // weakest concepts first
+      });
+  }, [userProfile]);
+
+
 
   const [currentProblem, setCurrentProblem] = useState<Problem>(problemDatabase[0]);
   const [code, setCode] = useState<string>(currentProblem.starterCode);
@@ -89,9 +125,10 @@ const App: React.FC = () => {
   // Percentage of problems solved at current skill level
   const solvedCount = userProfile.solvedProblemIds?.length ?? 0;
 
+  const totalProblems = problemDatabase.length;
   const progressPercent =
-    filteredProblems.length > 0
-      ? (solvedCount / filteredProblems.length) * 100
+    totalProblems > 0
+      ? (solvedCount / totalProblems) * 100
       : 0;
 
 
@@ -119,7 +156,7 @@ const App: React.FC = () => {
 
   // Load progress
   useEffect(() => {
-    if (!authUser) return;
+    if (!authUser || authUser.role !== 'student') return;
 
     const loadProgress = async () => {
       try {
@@ -136,7 +173,10 @@ const App: React.FC = () => {
           });
 
           const found = problemDatabase.find(p => p.id === data.last_problem_id);
-          const start = found ?? filteredProblems[0];
+          const start =
+            found ??
+            recommendedProblems[0] ??
+            problemDatabase[0];
 
           setCurrentProblem(start);
           setCode(data.last_code ?? start.starterCode);
@@ -147,7 +187,7 @@ const App: React.FC = () => {
     };
 
     loadProgress();
-  }, [authUser, filteredProblems]);
+  }, [authUser]);
 
   // SUS Survey
   useEffect(() => {
@@ -181,11 +221,15 @@ const App: React.FC = () => {
   }, [authUser, userProfile, currentProblem.id, code, isSaving]);
 
   useEffect(() => {
-    if (authUser && sessionStartTime) {
-      const t = setTimeout(saveProgress, 2000);
-      return () => clearTimeout(t);
-    }
-  }, [code, userProfile.problemsSolved, saveProgress, authUser, sessionStartTime]);
+    if (!authUser) return;
+
+    const timeout = setTimeout(() => {
+      saveProgress();
+    }, 1000);
+
+    return () => clearTimeout(timeout);
+  }, [userProfile, code, authUser]);
+
 
   // Reset on problem change
   useEffect(() => {
@@ -193,6 +237,7 @@ const App: React.FC = () => {
     setOutput('');
     setError('');
     setHints([]);
+    setFailureCount(0);
     setSessionStartTime(Date.now());
   }, [currentProblem]);
 
@@ -206,11 +251,24 @@ const App: React.FC = () => {
     setHints([]);
 
     try {
-      const res = await runPython(code);
+      const res = await runPython(
+        code,
+        currentProblem.exampleCases,
+        currentProblem.functionName
+      );
 
       setOutput(res.output || '');
       setError(res.error || '');
-      setHints(res.hints || []);
+      if (res.hints && res.hints.length > 0) {
+
+        setUserProfile(prev => ({
+          ...prev,
+          hintsUsed: prev.hintsUsed + 1
+        }));
+
+        setHints(res.hints);
+      }
+
 
       // Count every attempt
       setUserProfile(prev => ({
@@ -218,51 +276,156 @@ const App: React.FC = () => {
         totalSubmissions: prev.totalSubmissions + 1,
       }));
 
+
+
       // Stop if execution failed
       if (res.error) {
         setRunning(false);
+
+        setUserProfile(prev => ({
+          ...prev,
+          errorHistory: [
+            ...prev.errorHistory,
+            {
+              timestamp: Date.now(),
+              errorType: res.error || "Unknown Error",
+            },
+          ],
+        }));
+
+
         return;
       }
 
-      const expected = currentProblem.exampleCases?.[0]?.output?.trim();
-      const actual = res.output?.trim();
+      let allPassed = false;
 
-      if (expected === actual) {
-        const solveTime =
-          (Date.now() - (sessionStartTime ?? Date.now())) / 1000;
+      try {
+        const lines = res.output.trim().split('\n');
+        const lastLine = lines[lines.length - 1];
+
+        const actualResults = JSON.parse(lastLine);
+
+        const expectedResults = currentProblem.exampleCases.map(tc =>
+          tc.output.trim()
+        );
+
+        allPassed =
+          JSON.stringify(actualResults.map(String)) ===
+          JSON.stringify(expectedResults);
+
+        console.log("ACTUAL:", actualResults);
+        console.log("EXPECTED:", expectedResults);
+        console.log("ALL PASSED?", allPassed);
+
+      } catch {
+        allPassed = false;
+      }
+
+
+
+
+      if (allPassed) {
+
+
+        setFailureCount(0);
 
         setUserProfile(prev => {
-          const alreadySolved = prev.solvedProblemIds.includes(
-            currentProblem.id
-          );
-
-          const hasCritical = res.hints?.some(h =>
-            h.includes('🚨')
-          );
-
+          const alreadySolved = prev.solvedProblemIds.includes(currentProblem.id);
+          const hasCritical = res.hints?.some(h => h.includes('🚨'));
           if (hasCritical) return prev;
 
-          const newSolved = !alreadySolved
-            ? [...prev.solvedProblemIds, currentProblem.id]
-            : prev.solvedProblemIds;
+          const updatedConceptMastery = { ...prev.conceptMastery };
 
-          const newProblemsSolved = !alreadySolved
-            ? prev.problemsSolved + 1
-            : prev.problemsSolved;
+          currentProblem.concepts.forEach(concept => {
+            const current = updatedConceptMastery[concept] ?? 0.5;
+            updatedConceptMastery[concept] = Math.min(1, current + 0.1);
+          });
+
+          const solveTime =
+            (Date.now() - (sessionStartTime ?? Date.now())) / 1000;
+
+          const newSolvedIds = alreadySolved
+            ? prev.solvedProblemIds
+            : [...prev.solvedProblemIds, currentProblem.id];
+
+          const newProblemsSolved = alreadySolved
+            ? prev.problemsSolved
+            : prev.problemsSolved + 1;
+
+          const newSuccessfulSubmissions = alreadySolved
+            ? prev.successfulSubmissions
+            : prev.successfulSubmissions + 1;
 
           const newTotalSolveTime =
-            prev.totalSolveTimeSeconds + solveTime;
+            alreadySolved
+              ? prev.totalSolveTimeSeconds
+              : prev.totalSolveTimeSeconds + solveTime;
+
+          const overallMastery =
+            Object.values(updatedConceptMastery).reduce((a, b) => a + b, 0) /
+            Object.keys(updatedConceptMastery).length;
 
           return {
             ...prev,
-            successfulSubmissions: prev.successfulSubmissions + 1,
+            successfulSubmissions: newSuccessfulSubmissions,
             problemsSolved: newProblemsSolved,
-            solvedProblemIds: newSolved,
+            solvedProblemIds: newSolvedIds,
             lastSolveTimeSeconds: solveTime,
             totalSolveTimeSeconds: newTotalSolveTime,
             averageSolveTimeSeconds:
-              newTotalSolveTime /
-              Math.max(1, newProblemsSolved),
+              newProblemsSolved > 0
+                ? newTotalSolveTime / newProblemsSolved
+                : 0,
+            conceptMastery: updatedConceptMastery,
+            learningTrajectory: [
+              ...prev.learningTrajectory,
+              {
+                timestamp: Date.now(),
+                overallMastery,
+              },
+            ],
+          };
+
+        });
+
+
+      }
+      else if (!res.error && (!res.hints || res.hints.length === 0)) {
+
+        if (!res.hints || res.hints.length === 0) {
+          setFailureCount(prev => {
+            const newFailureCount = prev + 1;
+
+            const bloomLevel =
+              newFailureCount === 1
+                ? 'remember'
+                : newFailureCount === 2
+                  ? 'understand'
+                  : 'apply';
+
+            const bloomHints = currentProblem.hints
+              .filter(h => h.level === bloomLevel)
+              .map(h => h.content);
+
+            setHints(bloomHints);
+
+            return newFailureCount;
+          });
+
+        }
+
+
+        setUserProfile(prev => {
+          const updatedConceptMastery = { ...prev.conceptMastery };
+
+          currentProblem.concepts.forEach(concept => {
+            const current = updatedConceptMastery[concept] ?? 0.5;
+            updatedConceptMastery[concept] = Math.max(0, current - 0.05);
+          });
+
+          return {
+            ...prev,
+            conceptMastery: updatedConceptMastery,
           };
         });
       }
@@ -273,11 +436,40 @@ const App: React.FC = () => {
     setRunning(false);
   };
 
+  const handleSubmitFeedback = async () => {
+    if (!authUser || authUser.role !== 'student') return;
+
+    try {
+      const res = await fetch('http://localhost:4000/feedback', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authUser.token}`,
+        },
+        body: JSON.stringify({
+          problemId: currentProblem.id,
+          rating: feedbackRating,
+          comment: feedbackComment,
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error('Failed to submit feedback');
+      }
+
+      setFeedbackMessage('Feedback submitted successfully!');
+      setFeedbackRating(null);
+      setFeedbackComment('');
+    } catch (err) {
+      setFeedbackMessage('Error submitting feedback');
+    }
+  };
+
 
   //  Recommend next problem 
   const recommendNextProblem = () => {
-    const idx = filteredProblems.findIndex(p => p.id === currentProblem.id);
-    const next = filteredProblems[idx + 1];
+    const idx = recommendedProblems.findIndex(p => p.id === currentProblem.id);
+    const next = recommendedProblems[idx + 1];
     if (next) setCurrentProblem(next);
   };
 
@@ -348,7 +540,7 @@ const App: React.FC = () => {
                     <div className="font-bold">
                       {userProfile.solvedProblemIds.length}
                       <span className="text-gray-400">
-                        /{filteredProblems.length}
+                        /{problemDatabase.length}
                       </span>
                     </div>
                   </div>
@@ -390,6 +582,19 @@ const App: React.FC = () => {
             </div>
           </header>
 
+          <div className="bg-indigo-50 p-4 rounded-lg mb-4">
+            <h4 className="font-bold text-sm mb-2">
+              Recommended Focus
+            </h4>
+            <p className="text-xs">
+              Strengthen: {
+                Object.entries(userProfile.conceptMastery)
+                  .sort((a, b) => a[1] - b[1])[0]?.[0] ?? "Start solving problems"
+              }
+            </p>
+          </div>
+
+
           {/* MAIN */}
           <main className="max-w-7xl mx-auto px-6 py-8 grid grid-cols-12 gap-8">
             {/* Sidebar */}
@@ -399,7 +604,7 @@ const App: React.FC = () => {
                   <BookOpen size={16} /> Tasks
                 </h3>
                 <div className="space-y-2 max-h-[50vh] overflow-y-auto">
-                  {filteredProblems.map(p => {
+                  {recommendedProblems.map(p => {
                     const solved = userProfile.solvedProblemIds.includes(p.id);
 
                     return (
@@ -506,6 +711,55 @@ const App: React.FC = () => {
                           {error ? `ERROR: ${error}` : `OUTPUT: ${output}`}
                         </div>
                       )}
+
+                      {/* STUDENT FEEDBACK */}
+                      {authUser.role === 'student' && (
+                        <div className="bg-white p-6 rounded-xl border mt-6">
+                          <h3 className="font-bold mb-3">Submit Feedback</h3>
+
+                          <div className="mb-3">
+                            <label className="text-sm font-semibold block mb-1">
+                              Rating (1–5)
+                            </label>
+                            <input
+                              type="number"
+                              min="1"
+                              max="5"
+                              value={feedbackRating ?? ''}
+                              onChange={(e) =>
+                                setFeedbackRating(Number(e.target.value))
+                              }
+                              className="border px-3 py-2 rounded w-24"
+                            />
+                          </div>
+
+                          <div className="mb-3">
+                            <label className="text-sm font-semibold block mb-1">
+                              Comment
+                            </label>
+                            <textarea
+                              value={feedbackComment}
+                              onChange={(e) =>
+                                setFeedbackComment(e.target.value)
+                              }
+                              className="border px-3 py-2 rounded w-full"
+                              rows={3}
+                            />
+                          </div>
+
+                          <button
+                            onClick={handleSubmitFeedback}
+                            className="bg-indigo-600 text-white px-4 py-2 rounded font-bold"
+                          >
+                            Submit Feedback
+                          </button>
+
+                          {feedbackMessage && (
+                            <p className="text-sm mt-2">{feedbackMessage}</p>
+                          )}
+                        </div>
+                      )}
+
                     </>
                   ) : (
                     <div className="min-h-[400px] flex justify-center items-center">

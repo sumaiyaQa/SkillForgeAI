@@ -11,6 +11,7 @@ import {
   Cell,
 } from 'recharts';
 import { Users, BarChart3, Award, MessageSquare } from 'lucide-react';
+import { LineChart, Line } from 'recharts';
 
 // TYPES
 
@@ -27,7 +28,15 @@ interface ProgressSummary {
     avg_success: number;
   };
   skillDistribution: SkillDistributionItem[];
+
+  conceptHeatmap?: Record<string, number>;
+  errorFrequency?: Record<string, number>;
+  trajectory?: {
+    timestamp: number;
+    overallMastery: number;
+  }[];
 }
+
 
 
 //  Represents a single feedback entry as seen by an admin.
@@ -91,7 +100,7 @@ export default function AdminDashboard({ token }: { token: string }) {
   useEffect(() => {
     const fetchFeedback = async () => {
       try {
-        const res = await fetch('http://localhost:4000/admin/feedback', {
+        const res = await fetch('http://localhost:4000/feedback', {
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -215,6 +224,80 @@ export default function AdminDashboard({ token }: { token: string }) {
             </div>
           </div>
         </div>
+
+
+{summary.conceptHeatmap && Object.keys(summary.conceptHeatmap).length > 0 && (
+  <div className="bg-white p-6 rounded-xl border shadow-sm mb-12">
+    <h3 className="font-bold mb-4">Concept Mastery Heatmap</h3>
+    <div className="h-64">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart
+          data={Object.entries(summary.conceptHeatmap).map(
+            ([concept, value]) => ({
+              concept,
+              mastery: Math.round(value * 100),
+            })
+          )}
+        >
+          <XAxis dataKey="concept" />
+          <YAxis domain={[0, 100]} />
+          <Tooltip />
+          <Bar dataKey="mastery" fill="#8b5cf6" />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  </div>
+)}
+
+{summary.trajectory && summary.trajectory.length > 0 && (
+  <div className="bg-white p-6 rounded-xl border shadow-sm mb-12">
+    <h3 className="font-bold mb-4">Learning Trajectory</h3>
+    <div className="h-64">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={summary.trajectory}>
+          <XAxis
+            dataKey="timestamp"
+            tickFormatter={(t) =>
+              new Date(t).toLocaleTimeString()
+            }
+          />
+          <YAxis />
+          <Tooltip />
+          <Line
+            type="monotone"
+            dataKey="overallMastery"
+            stroke="#4f46e5"
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  </div>
+)}
+
+{summary.errorFrequency && Object.keys(summary.errorFrequency).length > 0 && (
+  <div className="bg-white p-6 rounded-xl border shadow-sm">
+    <h3 className="font-bold mb-4">Error Pattern Frequency</h3>
+    <div className="h-64">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart
+          data={Object.entries(summary.errorFrequency).map(
+            ([error, count]) => ({
+              error,
+              count,
+            })
+          )}
+        >
+          <XAxis dataKey="error" />
+          <YAxis allowDecimals={false} />
+          <Tooltip />
+          <Bar dataKey="count" fill="#ec4899" />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  </div>
+)}
+
+
 
         {/* FEEDBACK TABLE */}
         <div className="bg-white p-6 rounded-xl border shadow-sm">

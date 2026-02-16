@@ -9,12 +9,38 @@ export interface PythonResult {
 
 let worker: Worker | null = null;
 
-export function runPython(code: string): Promise<PythonResult> {
+export function runPython(
+  code: string,
+  testCases?: Array<{ input: string; output: string }>,
+  functionName?: string
+): Promise<PythonResult> {
   if (!worker) {
     worker = new Worker(
       new URL('../workers/pythonWorker.js', import.meta.url),
       { type: 'classic' }
     );
+  }
+
+  let finalCode = code;
+
+  // If functionName exists, remove any top-level print statements
+ if (functionName) {
+  finalCode = code.replace(/print\s*\(.*?\)/g, "");
+}
+
+
+  // Inject dynamic test runner if functionName exists
+  if (testCases && functionName) {
+    let testRunner = "\nimport json\nresults = []\n";
+
+    testCases.forEach(tc => {
+      testRunner += `results.append(${functionName}(${tc.input}))\n`;
+    });
+
+    testRunner += "import json\n";
+    testRunner += "print(json.dumps(results))\n";
+
+    finalCode += testRunner;
   }
 
   return new Promise((resolve, reject) => {
@@ -53,7 +79,7 @@ export function runPython(code: string): Promise<PythonResult> {
       reject(
         new Error(
           err.message ||
-            'Python worker crashed unexpectedly.'
+          'Python worker crashed unexpectedly.'
         )
       );
     };
@@ -61,6 +87,6 @@ export function runPython(code: string): Promise<PythonResult> {
     worker!.addEventListener('message', handleMessage);
     worker!.addEventListener('error', handleError);
 
-    worker!.postMessage({ code });
+    worker!.postMessage({ code: finalCode });
   });
 }

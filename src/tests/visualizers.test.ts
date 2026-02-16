@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { generateFactorialSteps } from '../components/visualizers/FactorialVisualizer';
-import { generateBubbleSortSteps } from '../components/visualizers/BubbleSortVisualizer';
-import { generateBinarySearchSteps } from '../components/visualizers/BinarySearchVisualizer';
+import { generateFactorialSteps } from '../components/student/visualizers/FactorialVisualizer';
+import { generateBubbleSortSteps } from '../components/student/visualizers/BubbleSortVisualizer';
+import { generateBinarySearchSteps } from '../components/student/visualizers/BinarySearchVisualizer';
 
 describe('Factorial visualizer', () => {
   it('computes correct factorial result in final step', () => {

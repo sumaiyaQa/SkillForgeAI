@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Code2 } from "lucide-react";
-import PlacementQuiz from "./PlacementQuiz";
+import PlacementQuiz from "../student/PlacementQuiz";
 
 // TYPES
     
@@ -69,7 +69,7 @@ export default function Login({ onLogin }: Props) {
         role: data.role || "student",
       };
 
-localStorage.setItem("skillforge:token", JSON.stringify(auth));
+localStorage.setItem("skillforge:auth", JSON.stringify(auth));
       onLogin(auth); //pass full auth object
     } catch {
       setError("Server error. Please check if the backend is running.");
@@ -128,7 +128,7 @@ localStorage.setItem("skillforge:token", JSON.stringify(auth));
         role: loginData.role || "student",
       };
 
-localStorage.setItem("skillforge:token", JSON.stringify(auth));
+localStorage.setItem("skillforge:auth", JSON.stringify(auth));
       onLogin(auth); // pass full auth object
     } catch {
       setError("Failed to complete registration.");
