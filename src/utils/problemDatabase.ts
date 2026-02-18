@@ -438,222 +438,105 @@ export const problemDatabase: Problem[] = [
       { id: 'sd-3', level: 'apply', scaffolding: 3, concept: 'math-way', content: 'Alternatively, use n % 10 to get the last digit and n // 10 to remove it.' }
     ]
   },
- {
+{
     id: 26,
     title: 'Validate Balanced Parentheses',
     difficulty: 'hard',
-    description:
-      'Given a string containing parentheses (), brackets [], and braces {}, return True if the string is balanced.',
-    starterCode:
-      "def is_balanced(s):\n    # Write your code here\n    pass\n\nprint(is_balanced('{[()]}'))",
+    description: 'Given a string containing parentheses (), brackets [], and braces {}, return True if the string is balanced.',
+    starterCode: "def is_balanced(s):\n    # Write your code here\n    pass\n\nprint(is_balanced('{[()]}'))",
     functionName: 'is_balanced',
     exampleCases: [
       { input: "'{[()]}'", output: 'True\n' },
-      { input: "'{[(])}'", output: 'False\n' },
+      { input: "')('", output: 'False\n' },      // STRENGTHENED: Breaks count-only logic
+      { input: "'{[(])}'", output: 'False\n' },  // STRENGTHENED: Breaks count-only logic (interleaved)
       { input: "'((())'", output: 'False\n' },
     ],
     concepts: ['stacks', 'strings', 'validation'],
     hints: [
-      {
-        id: 'bal-1',
-        level: 'remember',
-        scaffolding: 1,
-        concept: 'stack',
-        content:
-          'A stack (LIFO) is commonly used to validate nested structures.',
-      },
-      {
-        id: 'bal-2',
-        level: 'understand',
-        scaffolding: 2,
-        concept: 'matching',
-        content:
-          'When you see a closing bracket, it must match the most recent opening one.',
-      },
-      {
-        id: 'bal-3',
-        level: 'apply',
-        scaffolding: 3,
-        concept: 'implementation',
-        content:
-          'Push opening brackets to a stack and pop when a matching closing bracket appears.',
-      },
+      { id: 'bal-1', level: 'remember', scaffolding: 1, concept: 'stack', content: 'A stack (LIFO) is commonly used to validate nested structures.' },
+      { id: 'bal-2', level: 'understand', scaffolding: 2, concept: 'matching', content: 'When you see a closing bracket, it must match the most recent opening one.' },
+      { id: 'bal-3', level: 'apply', scaffolding: 3, concept: 'implementation', content: 'Push opening brackets to a stack and pop when a matching closing bracket appears.' },
     ],
   },
-
   {
     id: 27,
     title: 'Second Largest Number',
     difficulty: 'hard',
-    description:
-      'Return the second largest number in a list. Assume the list contains at least two unique numbers.',
-    starterCode:
-      'def second_largest(numbers):\n    # Write your code here\n    pass\n\nprint(second_largest([10, 5, 20, 8]))',
+    description: 'Return the second largest number in a list. Assume the list contains at least two unique numbers.',
+    starterCode: 'def second_largest(numbers):\n    # Write your code here\n    pass\n\nprint(second_largest([10, 5, 20, 8]))',
     functionName: 'second_largest',
     exampleCases: [
       { input: '[10, 5, 20, 8]', output: '10\n' },
+      { input: '[20, 20, 10]', output: '10\n' }, // STRENGTHENED: Breaks logic that doesn't handle duplicates
       { input: '[1, 3, 2]', output: '2\n' },
     ],
     concepts: ['loops', 'comparison', 'tracking-values'],
     hints: [
-      {
-        id: 'sec-1',
-        level: 'remember',
-        scaffolding: 1,
-        concept: 'sorting',
-        content:
-          'Sorting works, but can you find the answer without sorting the whole list?',
-      },
-      {
-        id: 'sec-2',
-        level: 'understand',
-        scaffolding: 2,
-        concept: 'variables',
-        content:
-          'Track both the largest and second largest values as you iterate.',
-      },
-      {
-        id: 'sec-3',
-        level: 'apply',
-        scaffolding: 3,
-        concept: 'logic',
-        content:
-          'Update second largest when you find a new largest number.',
-      },
+      { id: 'sec-1', level: 'remember', scaffolding: 1, concept: 'sorting', content: 'Sorting works, but can you find the answer without sorting the whole list?' },
+      { id: 'sec-2', level: 'understand', scaffolding: 2, concept: 'variables', content: 'Track both the largest and second largest values as you iterate.' },
+      { id: 'sec-3', level: 'apply', scaffolding: 3, concept: 'logic', content: 'Update second largest when you find a new largest number.' },
     ],
   },
-
   {
     id: 28,
     title: 'Rotate List',
     difficulty: 'hard',
-    description:
-      'Rotate a list to the right by k steps.',
-    starterCode:
-      'def rotate_list(nums, k):\n    # Write your code here\n    pass\n\nprint(rotate_list([1, 2, 3, 4, 5], 2))',
+    description: 'Rotate a list to the right by k steps.',
+    starterCode: 'def rotate_list(nums, k):\n    # Write your code here\n    pass\n\nprint(rotate_list([1, 2, 3, 4, 5], 2))',
     functionName: 'rotate_list',
     exampleCases: [
       { input: '[1, 2, 3, 4, 5], 2', output: '[4, 5, 1, 2, 3]\n' },
-      { input: '[1, 2], 3', output: '[2, 1]\n' },
+      { input: '[1, 2], 3', output: '[2, 1]\n' }, // STRENGTHENED: Breaks code that doesn't use k % len(nums)
+      { input: '[1, 2, 3], 0', output: '[1, 2, 3]\n' },
     ],
     concepts: ['lists', 'slicing', 'modulus'],
     hints: [
-      {
-        id: 'rot-1',
-        level: 'remember',
-        scaffolding: 1,
-        concept: 'length',
-        content:
-          'Rotating by k where k > length still produces a valid result.',
-      },
-      {
-        id: 'rot-2',
-        level: 'understand',
-        scaffolding: 2,
-        concept: 'slicing',
-        content:
-          'List slicing can help rearrange parts of a list efficiently.',
-      },
-      {
-        id: 'rot-3',
-        level: 'apply',
-        scaffolding: 3,
-        concept: 'formula',
-        content:
-          'Try: nums[-k:] + nums[:-k] after adjusting k with modulus.',
-      },
+      { id: 'rot-1', level: 'remember', scaffolding: 1, concept: 'length', content: 'Rotating by k where k > length still produces a valid result.' },
+      { id: 'rot-2', level: 'understand', scaffolding: 2, concept: 'slicing', content: 'List slicing can help rearrange parts of a list efficiently.' },
+      { id: 'rot-3', level: 'apply', scaffolding: 3, concept: 'formula', content: 'Try: nums[-k:] + nums[:-k] after adjusting k with modulus.' },
     ],
   },
-
   {
     id: 29,
     title: 'Remove Adjacent Duplicates',
     difficulty: 'hard',
-    description:
-      'Remove all adjacent duplicate characters from a string.',
-    starterCode:
-      "def remove_adjacent(s):\n    # Write your code here\n    pass\n\nprint(remove_adjacent('aabbccdde'))",
+    description: 'Remove all adjacent duplicate characters from a string.',
+    starterCode: "def remove_adjacent(s):\n    # Write your code here\n    pass\n\nprint(remove_adjacent('aabbccdde'))",
     functionName: 'remove_adjacent',
     exampleCases: [
       { input: "'aabbccdde'", output: 'abcde\n' },
       { input: "'aaabbb'", output: 'ab\n' },
+      { input: "'abcde'", output: 'abcde\n' },
     ],
     concepts: ['strings', 'iteration', 'state'],
     hints: [
-      {
-        id: 'adj-1',
-        level: 'remember',
-        scaffolding: 1,
-        concept: 'comparison',
-        content:
-          'You only need to compare each character with the previous one.',
-      },
-      {
-        id: 'adj-2',
-        level: 'understand',
-        scaffolding: 2,
-        concept: 'accumulation',
-        content:
-          'Build a result string step by step.',
-      },
-      {
-        id: 'adj-3',
-        level: 'apply',
-        scaffolding: 3,
-        concept: 'logic',
-        content:
-          'Only append the current character if it differs from the last appended one.',
-      },
+      { id: 'adj-1', level: 'remember', scaffolding: 1, concept: 'comparison', content: 'You only need to compare each character with the previous one.' },
+      { id: 'adj-2', level: 'understand', scaffolding: 2, concept: 'accumulation', content: 'Build a result string step by step.' },
+      { id: 'adj-3', level: 'apply', scaffolding: 3, concept: 'logic', content: 'Only append the current character if it differs from the last appended one.' },
     ],
   },
-
   {
     id: 30,
     title: 'Find Missing Number',
     difficulty: 'hard',
-    description:
-      'Given a list containing numbers from 1 to n with one missing, return the missing number.',
-    starterCode:
-      'def find_missing(nums, n):\n    # Write your code here\n    pass\n\nprint(find_missing([1, 2, 4, 5], 5))',
+    description: 'Given a list containing numbers from 1 to n with one missing, return the missing number.',
+    starterCode: 'def find_missing(nums, n):\n    # Write your code here\n    pass\n\nprint(find_missing([1, 2, 4, 5], 5))',
     functionName: 'find_missing',
     exampleCases: [
       { input: '[1, 2, 4, 5], 5', output: '3\n' },
-      { input: '[2, 3, 1, 5], 5', output: '4\n' },
+      { input: '[2, 3, 1, 5], 5', output: '4\n' }, // STRENGTHENED: Breaks logic that expects sorted input
+      { input: '[1], 2', output: '2\n' },
     ],
     concepts: ['math', 'sets', 'problem-solving'],
     hints: [
-      {
-        id: 'miss-1',
-        level: 'remember',
-        scaffolding: 1,
-        concept: 'sum-formula',
-        content:
-          'The sum of numbers from 1 to n is n * (n + 1) / 2.',
-      },
-      {
-        id: 'miss-2',
-        level: 'understand',
-        scaffolding: 2,
-        concept: 'difference',
-        content:
-          'Subtract the sum of the list from the expected total.',
-      },
-      {
-        id: 'miss-3',
-        level: 'apply',
-        scaffolding: 3,
-        concept: 'solution',
-        content:
-          'expected_sum - actual_sum gives the missing number.',
-      },
+      { id: 'miss-1', level: 'remember', scaffolding: 1, concept: 'sum-formula', content: 'The sum of numbers from 1 to n is n * (n + 1) / 2.' },
+      { id: 'miss-2', level: 'understand', scaffolding: 2, concept: 'difference', content: 'Subtract the sum of the list from the expected total.' },
+      { id: 'miss-3', level: 'apply', scaffolding: 3, concept: 'solution', content: 'expected_sum - actual_sum gives the missing number.' },
     ],
   },
 ];
 
-export function getNextProblem(
-  currentId: number,
-  pool: Problem[]
-): Problem | null {
+export function getNextProblem(currentId: number, pool: Problem[]): Problem | null {
   const index = pool.findIndex(p => p.id === currentId);
   if (index === -1 || index === pool.length - 1) {
     return null;

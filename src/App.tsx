@@ -45,11 +45,15 @@ interface UserProfile {
     errorType: string;
   }>;
 
+  solvedSolutions: Record<number, string>;
+
+
 }
 
 interface AuthUser {
   token: string;
   role: 'student' | 'admin';
+  email: string;
 
 }
 
@@ -70,6 +74,9 @@ const initialUserProfile: UserProfile = {
   learningTrajectory: [],
   errorHistory: [],
 
+  solvedSolutions: {},
+
+
 };
 
 const App: React.FC = () => {
@@ -89,22 +96,23 @@ const App: React.FC = () => {
 
   // Adaptive filtering
   const recommendedProblems = useMemo(() => {
-    return problemDatabase
-      .filter(p => !userProfile.solvedProblemIds.includes(p.id))
-      .sort((a, b) => {
-        const scoreA = a.concepts.reduce(
+    return [...problemDatabase].sort((a, b) => {
+      const scoreA =
+        a.concepts.reduce(
           (sum, c) => sum + (userProfile.conceptMastery[c] ?? 0.5),
           0
         ) / a.concepts.length;
 
-        const scoreB = b.concepts.reduce(
+      const scoreB =
+        b.concepts.reduce(
           (sum, c) => sum + (userProfile.conceptMastery[c] ?? 0.5),
           0
         ) / b.concepts.length;
 
-        return scoreA - scoreB; // weakest concepts first
-      });
+      return scoreA - scoreB;
+    });
   }, [userProfile]);
+
 
 
 
@@ -146,11 +154,22 @@ const App: React.FC = () => {
   useEffect(() => {
     const raw = localStorage.getItem("skillforge:auth");
     if (raw) {
-      setAuthUser(JSON.parse(raw));
+      try {
+        const parsed = JSON.parse(raw);
+        // Validate that we have all required fields
+        if (parsed.token && parsed.role && parsed.email) {
+          setAuthUser(parsed);
+        } else {
+          console.error("Invalid auth data in localStorage:", parsed);
+          localStorage.removeItem("skillforge:auth");
+        }
+      } catch (e) {
+        console.error("Failed to parse auth data");
+        localStorage.removeItem("skillforge:auth");
+      }
     }
     setAuthChecked(true);
   }, []);
-
 
 
 
@@ -199,6 +218,7 @@ const App: React.FC = () => {
   // Autosave
   const saveProgress = useCallback(async () => {
     if (!authUser || isSaving) return;
+    
     setIsSaving(true);
     try {
       await fetch('http://localhost:4000/progress', {
@@ -228,212 +248,97 @@ const App: React.FC = () => {
     }, 1000);
 
     return () => clearTimeout(timeout);
-  }, [userProfile, code, authUser]);
+  }, [userProfile, code, authUser, saveProgress]);
 
 
   // Reset on problem change
   useEffect(() => {
-    setCode(currentProblem.starterCode);
+
+    const saved = userProfile.solvedSolutions[currentProblem.id];
+
+    if (saved) {
+      setCode(saved);
+    } else {
+      setCode(currentProblem.starterCode);
+    }
+
+    // setCode(currentProblem.starterCode);
     setOutput('');
     setError('');
     setHints([]);
     setFailureCount(0);
     setSessionStartTime(Date.now());
-  }, [currentProblem]);
+  }, [currentProblem, userProfile.solvedSolutions]);
 
   // Run code
   const handleRunCode = async () => {
-    if (!sessionStartTime) setSessionStartTime(Date.now());
-
     setRunning(true);
     setOutput('');
     setError('');
     setHints([]);
 
     try {
-      const res = await runPython(
-        code,
-        currentProblem.exampleCases,
-        currentProblem.functionName
-      );
+      const res = await runPython(code, currentProblem.exampleCases, currentProblem.functionName);
 
+      // 1. Update UI Console
       setOutput(res.output || '');
       setError(res.error || '');
+      
+      // 2. FORCE HINTS: Show AST hints immediately, even if the code "passed"
       if (res.hints && res.hints.length > 0) {
-
-        setUserProfile(prev => ({
-          ...prev,
-          hintsUsed: prev.hintsUsed + 1
-        }));
-
         setHints(res.hints);
       }
 
-
-      // Count every attempt
-      setUserProfile(prev => ({
-        ...prev,
-        totalSubmissions: prev.totalSubmissions + 1,
-      }));
-
-
-
-      // Stop if execution failed
-      if (res.error) {
-        setRunning(false);
-
-        setUserProfile(prev => ({
-          ...prev,
-          errorHistory: [
-            ...prev.errorHistory,
-            {
-              timestamp: Date.now(),
-              errorType: res.error || "Unknown Error",
-            },
-          ],
-        }));
-
-
-        return;
-      }
-
-      let allPassed = false;
-
-      try {
-        const lines = res.output.trim().split('\n');
-        const lastLine = lines[lines.length - 1];
-
-        const actualResults = JSON.parse(lastLine);
-
-        const expectedResults = currentProblem.exampleCases.map(tc =>
-          tc.output.trim()
-        );
-
-        allPassed =
-          JSON.stringify(actualResults.map(String)) ===
-          JSON.stringify(expectedResults);
-
-        console.log("ACTUAL:", actualResults);
-        console.log("EXPECTED:", expectedResults);
-        console.log("ALL PASSED?", allPassed);
-
-      } catch {
-        allPassed = false;
-      }
-
-
-
-
-      if (allPassed) {
-
-
-        setFailureCount(0);
-
-        setUserProfile(prev => {
-          const alreadySolved = prev.solvedProblemIds.includes(currentProblem.id);
-          const hasCritical = res.hints?.some(h => h.includes('🚨'));
-          if (hasCritical) return prev;
-
-          const updatedConceptMastery = { ...prev.conceptMastery };
-
-          currentProblem.concepts.forEach(concept => {
-            const current = updatedConceptMastery[concept] ?? 0.5;
-            updatedConceptMastery[concept] = Math.min(1, current + 0.1);
-          });
-
-          const solveTime =
-            (Date.now() - (sessionStartTime ?? Date.now())) / 1000;
-
-          const newSolvedIds = alreadySolved
-            ? prev.solvedProblemIds
-            : [...prev.solvedProblemIds, currentProblem.id];
-
-          const newProblemsSolved = alreadySolved
-            ? prev.problemsSolved
-            : prev.problemsSolved + 1;
-
-          const newSuccessfulSubmissions = alreadySolved
-            ? prev.successfulSubmissions
-            : prev.successfulSubmissions + 1;
-
-          const newTotalSolveTime =
-            alreadySolved
-              ? prev.totalSolveTimeSeconds
-              : prev.totalSolveTimeSeconds + solveTime;
-
-          const overallMastery =
-            Object.values(updatedConceptMastery).reduce((a, b) => a + b, 0) /
-            Object.keys(updatedConceptMastery).length;
-
+      // 3. Process Statistics & Mastery
+      setUserProfile(prev => {
+        const isAlreadySolved = prev.solvedProblemIds.includes(currentProblem.id);
+        if (isAlreadySolved) {
           return {
             ...prev,
-            successfulSubmissions: newSuccessfulSubmissions,
-            problemsSolved: newProblemsSolved,
-            solvedProblemIds: newSolvedIds,
-            lastSolveTimeSeconds: solveTime,
-            totalSolveTimeSeconds: newTotalSolveTime,
-            averageSolveTimeSeconds:
-              newProblemsSolved > 0
-                ? newTotalSolveTime / newProblemsSolved
-                : 0,
-            conceptMastery: updatedConceptMastery,
-            learningTrajectory: [
-              ...prev.learningTrajectory,
-              {
-                timestamp: Date.now(),
-                overallMastery,
-              },
-            ],
+            solvedSolutions: { ...prev.solvedSolutions, [currentProblem.id]: code }
           };
-
-        });
-
-
-      }
-      else if (!res.error && (!res.hints || res.hints.length === 0)) {
-
-        if (!res.hints || res.hints.length === 0) {
-          setFailureCount(prev => {
-            const newFailureCount = prev + 1;
-
-            const bloomLevel =
-              newFailureCount === 1
-                ? 'remember'
-                : newFailureCount === 2
-                  ? 'understand'
-                  : 'apply';
-
-            const bloomHints = currentProblem.hints
-              .filter(h => h.level === bloomLevel)
-              .map(h => h.content);
-
-            setHints(bloomHints);
-
-            return newFailureCount;
-          });
-
         }
 
+        const newTotalSubmissions = prev.totalSubmissions + 1;
 
-        setUserProfile(prev => {
-          const updatedConceptMastery = { ...prev.conceptMastery };
-
-          currentProblem.concepts.forEach(concept => {
-            const current = updatedConceptMastery[concept] ?? 0.5;
-            updatedConceptMastery[concept] = Math.max(0, current - 0.05);
+        if (res.passed) {
+          const updatedMastery = { ...prev.conceptMastery };
+          currentProblem.concepts.forEach(c => {
+            updatedMastery[c] = Math.min(1, (updatedMastery[c] ?? 0.5) + 0.1);
           });
 
           return {
             ...prev,
-            conceptMastery: updatedConceptMastery,
+            totalSubmissions: newTotalSubmissions,
+            successfulSubmissions: prev.successfulSubmissions + 1,
+            problemsSolved: prev.solvedProblemIds.length + 1,
+            solvedProblemIds: [...prev.solvedProblemIds, currentProblem.id],
+            conceptMastery: updatedMastery,
+            solvedSolutions: { ...prev.solvedSolutions, [currentProblem.id]: code }
           };
-        });
-      }
-    } catch (err) {
-      setError('Runtime Error: ' + String(err));
-    }
+        }
 
-    setRunning(false);
+        return { ...prev, totalSubmissions: newTotalSubmissions };
+      });
+
+      // 4. SCAFFOLDING LOGIC: If code fails OR has structural issues, increment failure count
+      // This ensures Bloom's Taxonomy hints trigger even if the logic is "accidentally" right
+      const hasStructuralIssues = res.hints && res.hints.length > 0;
+      if (!res.passed || hasStructuralIssues) {
+        setFailureCount(f => f + 1);
+        
+        // Dynamically pull from problemDatabase hints based on failureCount
+        const bloomLevelHint = currentProblem.hints.find(h => h.scaffolding === Math.min(failureCount + 1, 3));
+        if (bloomLevelHint && !res.hints?.includes(bloomLevelHint.content)) {
+          setHints(prev => [...prev, bloomLevelHint.content]);
+        }
+      }
+
+    } catch (err) {
+      setError('System Error: ' + String(err));
+    } finally {
+      setRunning(false);
+    }
   };
 
   const handleSubmitFeedback = async () => {
@@ -479,7 +384,19 @@ const App: React.FC = () => {
   };
 
   if (!authChecked) return <div className="p-6 font-mono">Initializing…</div>;
-  if (!authUser) return <Login onLogin={(auth) => setAuthUser({ token: auth.token, role: auth.role })} />;
+  if (!authUser) return <Login
+    onLogin={(auth) => {
+      const userData = {
+        token: auth.token,
+        role: auth.role,
+        email: auth.email,
+      };
+
+      localStorage.setItem("skillforge:auth", JSON.stringify(userData));
+      setAuthUser(userData);
+    }}
+  />
+
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -569,6 +486,13 @@ const App: React.FC = () => {
                     </div>
                   </div>
 
+                  <div className="flex flex-col items-end">
+                    <span className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Logged in as</span>
+                    <span className="text-xs font-black text-indigo-600">
+                      {authUser.email ? authUser.email.split('@')[0] : 'Guest User'}
+                    </span>
+                  </div>
+
                   {/* Logout */}
                   <button
                     onClick={handleLogout}
@@ -652,6 +576,7 @@ const App: React.FC = () => {
                 </p>
               </div>
 
+
               <div className="bg-white rounded-xl border overflow-hidden">
                 <div className="bg-gray-50 border-b px-4 flex">
                   {['code', 'visualization'].map(tab => (
@@ -670,6 +595,8 @@ const App: React.FC = () => {
 
                 <div className="p-6">
                   {activeTab === 'code' ? (
+
+
                     <>
                       <CodeEditor code={code} onChange={setCode} />
 
@@ -688,6 +615,17 @@ const App: React.FC = () => {
                         </button>
                       </div>
 
+                      {userProfile.solvedProblemIds.includes(currentProblem.id) && (
+                        <div className="bg-gray-50 border p-4 rounded-lg mt-4">
+                          <h4 className="font-bold text-xs uppercase text-gray-500 mb-2">
+                            Your Submitted Solution
+                          </h4>
+                          <pre className="text-xs font-mono whitespace-pre-wrap">
+                            {userProfile.solvedSolutions[currentProblem.id]}
+                          </pre>
+                        </div>
+                      )}
+
                       {hints.length > 0 && (
                         <div className="bg-amber-50 border-l-4 border-amber-400 p-4 rounded-r-lg mt-4">
                           <h3 className="font-bold text-amber-800 mb-2">💡 Hints</h3>
@@ -701,14 +639,34 @@ const App: React.FC = () => {
                         </div>
                       )}
 
+                      {userProfile.solvedProblemIds.includes(currentProblem.id) && (
+                        <div className="bg-emerald-100 text-emerald-700 p-2 rounded mb-2 text-xs font-bold flex items-center gap-2">
+                          <Zap size={14} /> Task Requirement Met! You can continue to experiment.
+                        </div>
+                      )}
+                      {/* Always show the console if there is output OR an error, regardless of pass status */}
                       {(output || error) && (
-                        <div
-                          className={`mt-4 p-4 rounded-lg font-mono text-xs ${error
-                            ? 'bg-red-50 text-red-700'
-                            : 'bg-gray-900 text-gray-100'
-                            }`}
-                        >
-                          {error ? `ERROR: ${error}` : `OUTPUT: ${output}`}
+                        <div className="mt-4">
+                          {/* SUCCESS LABEL (Only shows if passed) */}
+                          {userProfile.solvedProblemIds.includes(currentProblem.id) && (
+                            <div className="bg-emerald-600 text-white p-2 rounded-t-lg text-xs font-bold flex items-center gap-2">
+                              <Zap size={14} /> CORRECT SOLUTION DETECTED
+                            </div>
+                          )}
+
+                          {/* ACTUAL OUTPUT CONSOLE */}
+                          <div className={`p-4 rounded-b-lg font-mono text-xs shadow-inner ${error ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-gray-900 text-gray-100'
+                            }`}>
+                            {error ? (
+                              <div className="whitespace-pre-wrap">⚠️ {error}</div>
+                            ) : (
+                              <div className="whitespace-pre-wrap">
+                                <span className="text-gray-500 mr-2">$ python solution.py</span>
+                                <br />
+                                {output || "(No output produced)"}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       )}
 

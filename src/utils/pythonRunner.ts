@@ -9,11 +9,11 @@ export interface PythonResult {
 
 let worker: Worker | null = null;
 
-export function runPython(
+export async function runPython(
   code: string,
   testCases?: Array<{ input: string; output: string }>,
   functionName?: string
-): Promise<PythonResult> {
+): Promise<PythonResult & { passed?: boolean }> {
   if (!worker) {
     worker = new Worker(
       new URL('../workers/pythonWorker.js', import.meta.url),
@@ -21,72 +21,18 @@ export function runPython(
     );
   }
 
-  let finalCode = code;
-
-  // If functionName exists, remove any top-level print statements
- if (functionName) {
-  finalCode = code.replace(/print\s*\(.*?\)/g, "");
-}
-
-
-  // Inject dynamic test runner if functionName exists
-  if (testCases && functionName) {
-    let testRunner = "\nimport json\nresults = []\n";
-
-    testCases.forEach(tc => {
-      testRunner += `results.append(${functionName}(${tc.input}))\n`;
-    });
-
-    testRunner += "import json\n";
-    testRunner += "print(json.dumps(results))\n";
-
-    finalCode += testRunner;
-  }
-
   return new Promise((resolve, reject) => {
-    let settled = false;
-
     const timeout = setTimeout(() => {
-      if (!settled) {
-        settled = true;
-        reject(
-          new Error(
-            'Python execution timed out. Worker did not respond.'
-          )
-        );
-      }
+      reject(new Error('Execution timed out. Check for infinite loops!'));
     }, 10000);
 
     const handleMessage = (event: MessageEvent) => {
-      if (settled) return;
-      settled = true;
-
       clearTimeout(timeout);
       worker!.removeEventListener('message', handleMessage);
-      worker!.removeEventListener('error', handleError);
-
-      resolve(event.data as PythonResult);
-    };
-
-    const handleError = (err: ErrorEvent) => {
-      if (settled) return;
-      settled = true;
-
-      clearTimeout(timeout);
-      worker!.removeEventListener('message', handleMessage);
-      worker!.removeEventListener('error', handleError);
-
-      reject(
-        new Error(
-          err.message ||
-          'Python worker crashed unexpectedly.'
-        )
-      );
+      resolve(event.data); // This now carries the 'passed' boolean from the worker
     };
 
     worker!.addEventListener('message', handleMessage);
-    worker!.addEventListener('error', handleError);
-
-    worker!.postMessage({ code: finalCode });
+    worker!.postMessage({ code, testCases, functionName });
   });
 }

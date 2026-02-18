@@ -6,6 +6,7 @@ import PlacementQuiz from "../student/PlacementQuiz";
     
 
 interface AuthPayload {
+  email: string;
   token: string;
   role: "student" | "admin";
 }
@@ -67,6 +68,7 @@ export default function Login({ onLogin }: Props) {
       const auth: AuthPayload = {
         token: data.token,
         role: data.role || "student",
+        email: email
       };
 
 localStorage.setItem("skillforge:auth", JSON.stringify(auth));
@@ -126,6 +128,7 @@ localStorage.setItem("skillforge:auth", JSON.stringify(auth));
       const auth: AuthPayload = {
         token: loginData.token,
         role: loginData.role || "student",
+        email: tempCredentials.email
       };
 
 localStorage.setItem("skillforge:auth", JSON.stringify(auth));
