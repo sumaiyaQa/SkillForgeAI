@@ -16,7 +16,7 @@ import { LineChart, Line } from 'recharts';
 // TYPES
 
 //  Represents aggregated progress statistics returned from the admin analytics endpoint.
- 
+
 interface SkillDistributionItem {
   level: 'beginner' | 'intermediate' | 'advanced';
   count: number;
@@ -41,7 +41,7 @@ interface ProgressSummary {
 
 //  Represents a single feedback entry as seen by an admin.
 // Combines student feedback with optional admin moderation data.
- 
+
 interface AdminFeedback {
   id: number;
   email: string;
@@ -57,18 +57,18 @@ interface AdminFeedback {
 // COMPONENT
 
 export default function AdminDashboard({ token }: { token: string }) {
-// STATE
+  // STATE
 
   const [summary, setSummary] = useState<ProgressSummary | null>(null);
   const [feedback, setFeedback] = useState<AdminFeedback[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-// FETCH ANALYTICS
+  // FETCH ANALYTICS
 
-  
+
   // Loads high-level progress analytics for instructors.
   // This data is used for charts and summary cards.
-   
+
   useEffect(() => {
     const fetchSummary = async () => {
       try {
@@ -96,7 +96,7 @@ export default function AdminDashboard({ token }: { token: string }) {
 
   // Loads all student feedback for administrative review.
   // This endpoint is protected by role-based access control.
-   
+
   useEffect(() => {
     const fetchFeedback = async () => {
       try {
@@ -141,8 +141,27 @@ export default function AdminDashboard({ token }: { token: string }) {
 
   const COLORS = ['#4f46e5', '#8b5cf6', '#ec4899'];
 
+  const getInsight = () => {
+    if (!summary) return null;
+
+    const mostCommonError = Object.entries(summary.errorFrequency || {})
+      .sort(([, a], [, b]) => b - a)[0];
+
+    const hardestConcept = Object.entries(summary.conceptHeatmap || {})
+      .sort(([, a], [, b]) => a - b)[0];
+
+    return {
+      error: mostCommonError ? mostCommonError[0] : "None",
+      concept: hardestConcept ? hardestConcept[0] : "None"
+    };
+  };
+
+  const insights = getInsight();
+
 
   return (
+
+
     <div className="p-8 bg-gray-50 min-h-screen">
       <div className="max-w-6xl mx-auto">
 
@@ -151,6 +170,16 @@ export default function AdminDashboard({ token }: { token: string }) {
           <BarChart3 className="text-indigo-600" />
           Instructor Analytics
         </h1>
+
+        <div className="bg-indigo-50 border-l-4 border-indigo-600 p-4 mb-8 rounded-r-xl">
+          <h2 className="text-indigo-900 font-bold flex items-center gap-2">
+            <span>💡</span> Instructor Insight
+          </h2>
+          <p className="text-indigo-700 text-sm">
+            Your class is currently struggling most with <strong>{insights?.concept}</strong>.
+            The most frequent anti-pattern detected is <strong>{insights?.error}</strong>.
+          </p>
+        </div>
 
         {/*SUMMARY CARDS*/}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
@@ -226,76 +255,76 @@ export default function AdminDashboard({ token }: { token: string }) {
         </div>
 
 
-{summary.conceptHeatmap && Object.keys(summary.conceptHeatmap).length > 0 && (
-  <div className="bg-white p-6 rounded-xl border shadow-sm mb-12">
-    <h3 className="font-bold mb-4">Concept Mastery Heatmap</h3>
-    <div className="h-64">
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart
-          data={Object.entries(summary.conceptHeatmap).map(
-            ([concept, value]) => ({
-              concept,
-              mastery: Math.round(value * 100),
-            })
-          )}
-        >
-          <XAxis dataKey="concept" />
-          <YAxis domain={[0, 100]} />
-          <Tooltip />
-          <Bar dataKey="mastery" fill="#8b5cf6" />
-        </BarChart>
-      </ResponsiveContainer>
-    </div>
-  </div>
-)}
+        {summary.conceptHeatmap && Object.keys(summary.conceptHeatmap).length > 0 && (
+          <div className="bg-white p-6 rounded-xl border shadow-sm mb-12">
+            <h3 className="font-bold mb-4">Concept Mastery Heatmap</h3>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={Object.entries(summary.conceptHeatmap).map(
+                    ([concept, value]) => ({
+                      concept,
+                      mastery: Math.round(value * 100),
+                    })
+                  )}
+                >
+                  <XAxis dataKey="concept" />
+                  <YAxis domain={[0, 100]} />
+                  <Tooltip />
+                  <Bar dataKey="mastery" fill="#8b5cf6" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
 
-{summary.trajectory && summary.trajectory.length > 0 && (
-  <div className="bg-white p-6 rounded-xl border shadow-sm mb-12">
-    <h3 className="font-bold mb-4">Learning Trajectory</h3>
-    <div className="h-64">
-      <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={summary.trajectory}>
-          <XAxis
-            dataKey="timestamp"
-            tickFormatter={(t) =>
-              new Date(t).toLocaleTimeString()
-            }
-          />
-          <YAxis />
-          <Tooltip />
-          <Line
-            type="monotone"
-            dataKey="overallMastery"
-            stroke="#4f46e5"
-          />
-        </LineChart>
-      </ResponsiveContainer>
-    </div>
-  </div>
-)}
+        {summary.trajectory && summary.trajectory.length > 0 && (
+          <div className="bg-white p-6 rounded-xl border shadow-sm mb-12">
+            <h3 className="font-bold mb-4">Learning Trajectory</h3>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={summary.trajectory}>
+                  <XAxis
+                    dataKey="timestamp"
+                    tickFormatter={(t) =>
+                      new Date(t).toLocaleTimeString()
+                    }
+                  />
+                  <YAxis />
+                  <Tooltip />
+                  <Line
+                    type="monotone"
+                    dataKey="overallMastery"
+                    stroke="#4f46e5"
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
 
-{summary.errorFrequency && Object.keys(summary.errorFrequency).length > 0 && (
-  <div className="bg-white p-6 rounded-xl border shadow-sm">
-    <h3 className="font-bold mb-4">Error Pattern Frequency</h3>
-    <div className="h-64">
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart
-          data={Object.entries(summary.errorFrequency).map(
-            ([error, count]) => ({
-              error,
-              count,
-            })
-          )}
-        >
-          <XAxis dataKey="error" />
-          <YAxis allowDecimals={false} />
-          <Tooltip />
-          <Bar dataKey="count" fill="#ec4899" />
-        </BarChart>
-      </ResponsiveContainer>
-    </div>
-  </div>
-)}
+        {summary.errorFrequency && Object.keys(summary.errorFrequency).length > 0 && (
+          <div className="bg-white p-6 rounded-xl border shadow-sm">
+            <h3 className="font-bold mb-4">Error Pattern Frequency</h3>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={Object.entries(summary.errorFrequency).map(
+                    ([error, count]) => ({
+                      error,
+                      count,
+                    })
+                  )}
+                >
+                  <XAxis dataKey="error" />
+                  <YAxis allowDecimals={false} />
+                  <Tooltip />
+                  <Bar dataKey="count" fill="#ec4899" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
 
 
 

@@ -10,43 +10,42 @@ const router = express.Router();
 // Creates a new student account.
 // All registered users default to the 'student' role.
 
-router.post('/register', async (req, res) => {
-  const { email, password, skillLevel } = req.body;
+// Add this to your backend/routes/auth.ts
 
-  // Basic input validation
+router.post('/register', async (req, res) => {
+  const { email, password, skillLevel, role, adminKey } = req.body;
+
   if (!email || !password) {
-    return res
-      .status(400)
-      .json({ message: 'Email and password required' });
+    return res.status(400).json({ message: 'Email and password required' });
   }
 
   try {
-    // Check if user already exists
-    const existingUser = await pool.query(
-      'SELECT id FROM users WHERE email = $1',
-      [email]
-    );
-
+    const existingUser = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
     if (existingUser.rowCount && existingUser.rowCount > 0) {
-      return res
-        .status(409)
-        .json({ message: 'User already exists' });
+      return res.status(409).json({ message: 'User already exists' });
     }
 
-    // Hash password before storing
+    // ROLE LOGIC: Check if trying to register as admin
+    let finalRole = 'student';
+    if (role === 'admin') {
+      // Compare with an environment variable (Add ADMIN_SECRET_KEY to your .env)
+      if (adminKey !== process.env.ADMIN_SECRET_KEY) {
+        return res.status(403).json({ message: 'Invalid Admin Key' });
+      }
+      finalRole = 'admin';
+    }
+
     const passwordHash = await bcrypt.hash(password, 10);
 
-    // Insert new user as a student
-    await pool.query(
-      `
-      INSERT INTO users (email, password_hash, skill_level, role)
-      VALUES ($1, $2, $3, 'student')
-      `,
-      [email, passwordHash, skillLevel || 'beginner']
+    const newUser = await pool.query(
+      `INSERT INTO users (email, password_hash, skill_level, role)
+       VALUES ($1, $2, $3, $4) RETURNING id, role`,
+      [email, passwordHash, skillLevel || 'beginner', finalRole]
     );
 
     res.status(201).json({
       message: 'User registered successfully',
+      user: { id: newUser.rows[0].id, role: newUser.rows[0].role }
     });
   } catch (err) {
     console.error(err);

@@ -10,54 +10,98 @@ import json
 def analyze_code(source_code):
     hints = []
     raw_matches = []
+
+    def add_unique_hint(msg):
+        if msg not in hints:
+            hints.append(msg)
+
     try:
         tree = ast.parse(source_code)
-        
-        # RULE 1: Infinite while True loop (CRITICAL)
+
+        # RULE 1: Infinite while True loop
         for node in ast.walk(tree):
             if isinstance(node, ast.While):
                 if isinstance(node.test, ast.Constant) and node.test.value is True:
                     has_exit = any(isinstance(n, ast.Break) for n in ast.walk(node))
                     if not has_exit:
                         raw_matches.append({"severity": "CRITICAL"})
-                        hints.append("🚨 This while loop has no exit condition. Add a break statement.")
+                        add_unique_hint("🚨 This while loop has no exit condition. Add a break statement.")
 
         # RULE 2: Function prints instead of returning
         for node in ast.walk(tree):
             if isinstance(node, ast.FunctionDef):
                 has_return = any(isinstance(n, ast.Return) for n in ast.walk(node))
-                has_print = any(isinstance(n, ast.Call) and getattr(n.func, "id", None) == "print" for n in ast.walk(node))
+                has_print = any(
+                    isinstance(n, ast.Call) and getattr(n.func, "id", None) == "print"
+                    for n in ast.walk(node)
+                )
                 if has_print and not has_return:
-                    hints.append(f"💡 Function '{node.name}' prints a value but does not return it.")
+                    add_unique_hint(f"💡 Function '{node.name}' prints instead of returning a value.")
 
         # RULE 3: Hard-coded return value
         for node in ast.walk(tree):
             if isinstance(node, ast.Return) and isinstance(node.value, ast.Constant):
-                hints.append("🚨 A constant value is returned. Ensure your solution works for all inputs.")
+                add_unique_hint("🚨 A constant value is returned. Ensure your solution works for all inputs.")
 
-                # --- ADVANCED STRUCTURAL CHECKS ---
-        
-        # Problem 26: Detecting count() instead of Stack
-        if "is_balanced" in source_code:
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Attribute) and node.attr == "count":
-                    add_unique_hint("🚀 Pro Tip: Using count() doesn't track bracket order. Use a Stack data structure.")
+        # RULE 4: Function only contains pass
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef):
+                if len(node.body) == 1 and isinstance(node.body[0], ast.Pass):
+                    add_unique_hint(f"⚠️ Function '{node.name}' is not implemented yet.")
 
-        # Problem 30: Detecting O(n^2) search
-        if "find_missing" in source_code:
-            for node in ast.walk(tree):
-                if isinstance(node, (ast.For, ast.While)):
-                    if any(isinstance(n, ast.Compare) and any(isinstance(op, ast.In) for op in n.ops) for n in ast.walk(node)):
-                        add_unique_hint("🐢 Performance: Searching 'in' a list inside a loop is slow. Try the sum formula formula: n*(n+1)/2.")
+        # RULE 5: Recursive function without base case
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef):
+                calls_self = any(
+                    isinstance(n, ast.Call) and getattr(n.func, "id", None) == node.name
+                    for n in ast.walk(node)
+                )
+                has_if = any(isinstance(n, ast.If) for n in ast.walk(node))
+                if calls_self and not has_if:
+                    add_unique_hint(f"🔁 Recursive function '{node.name}' may be missing a base case.")
+
+        # RULE 6: Nested loops (O(n²))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.For):
+                for child in ast.walk(node):
+                    if isinstance(child, ast.For) and child != node:
+                        add_unique_hint("🐢 Nested loops detected. Consider time complexity (O(n²)).")
+
+        # RULE 7: Using built-in sort()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute) and node.attr == "sort":
+                add_unique_hint("🚀 Built-in sort() detected. Try implementing the algorithm manually.")
+
+        # RULE 8: Function without return
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef):
+                has_return = any(isinstance(n, ast.Return) for n in ast.walk(node))
+                if not has_return:
+                    add_unique_hint(f"⚠️ Function '{node.name}' does not return any value.")
+
+        # RULE 9: Hardcoded factorial example
+        if "factorial" in source_code and "5" in source_code:
+            add_unique_hint("⚠️ Avoid hardcoding example values like 5.")
+
+        # RULE 10: Unused parameters
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef):
+                param_names = [arg.arg for arg in node.args.args]
+                used_names = [n.id for n in ast.walk(node) if isinstance(n, ast.Name)]
+                for param in param_names:
+                    if param not in used_names:
+                        add_unique_hint(f"⚠️ Parameter '{param}' is defined but never used.")
+
         return {
             "hints": hints,
-            "summary": { "total_issues": len(hints) },
+            "summary": {"total_issues": len(hints)},
             "raw_matches": raw_matches
         }
+
     except SyntaxError as e:
         return {
-            "hints": [f"🚨 Syntax error on line {e.lineno}: {e.msg}"],
-            "summary": { "total_issues": 1 },
+            "hints": [f"🚨 Syntax error: {e.msg} (line {e.lineno})"],
+            "summary": {"total_issues": 1},
             "raw_matches": []
         }
 `;

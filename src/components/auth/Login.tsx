@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Code2 } from "lucide-react";
+import { Code2, ShieldCheck, UserIcon } from "lucide-react";
 import PlacementQuiz from "../student/PlacementQuiz";
 
 // TYPES
@@ -21,36 +21,40 @@ interface Props {
 export default function Login({ onLogin }: Props) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [role, setRole] = useState<"student" | "admin">("student");
+  const [adminKey, setAdminKey] = useState("");
   const [error, setError] = useState("");
 
   const [isRegistering, setIsRegistering] = useState(false);
   const [showQuiz, setShowQuiz] = useState(false);
-
-  // Temporarily store credentials during placement quiz
-  const [tempCredentials, setTempCredentials] = useState<{
-    email: string;
-    password: string;
-  } | null>(null);
-
-  // LOGIN / REGISTER
-      
+  const [tempCredentials, setTempCredentials] = useState<any>(null);
 
   const handleSubmit = async () => {
     setError("");
 
-    // Registration, Placement Quiz
-    if (isRegistering && !showQuiz) {
+    // REGISTRATION LOGIC
+    if (isRegistering) {
       if (!email || !password) {
         setError("Please enter both email and password.");
         return;
       }
 
-      setTempCredentials({ email, password });
-      setShowQuiz(true);
+      if (role === "admin") {
+        if (!adminKey) {
+          setError("Admin key is required for instructor registration.");
+          return;
+        }
+        // Direct Registration for Admins (Skip Quiz)
+        await handleFinalRegistration("expert"); 
+      } else {
+        // Students go to Quiz
+        setTempCredentials({ email, password, role: "student" });
+        setShowQuiz(true);
+      }
       return;
     }
 
-    // Normal login
+    // LOGIN LOGIC
     try {
       const res = await fetch("http://localhost:4000/auth/login", {
         method: "POST",
@@ -59,161 +63,125 @@ export default function Login({ onLogin }: Props) {
       });
 
       const data = await res.json();
-
-      if (!res.ok) {
-        setError(data.message || "Invalid login credentials.");
-        return;
-      }
+      if (!res.ok) throw new Error(data.message || "Login failed");
 
       const auth: AuthPayload = {
         token: data.token,
-        role: data.role || "student",
+        role: data.role,
         email: email
       };
 
-localStorage.setItem("skillforge:auth", JSON.stringify(auth));
-      onLogin(auth); //pass full auth object
-    } catch {
-      setError("Server error. Please check if the backend is running.");
+      localStorage.setItem("skillforge:auth", JSON.stringify(auth));
+      onLogin(auth);
+    } catch (err: any) {
+      setError(err.message);
     }
   };
 
-  // PLACEMENT QUIZ COMPLETE
-      
-
-  const handleQuizComplete = async (level: string) => {
-    if (!tempCredentials) {
-      setError("Registration session expired. Please try again.");
-      setShowQuiz(false);
-      return;
-    }
+  const handleFinalRegistration = async (level: string) => {
+    const creds = isRegistering && role === "admin" 
+      ? { email, password, role, adminKey } 
+      : { ...tempCredentials, skillLevel: level };
 
     try {
-      // Register user with skill level
       const registerRes = await fetch("http://localhost:4000/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: tempCredentials.email,
-          password: tempCredentials.password,
-          skillLevel: level,
-        }),
+        body: JSON.stringify(creds),
       });
 
       const registerData = await registerRes.json();
+      if (!registerRes.ok) throw new Error(registerData.message);
 
-      if (!registerRes.ok) {
-        setError(registerData.message || "Registration failed.");
-        setShowQuiz(false);
-        return;
-      }
-
-      // Auto-login after registration
+      // Auto-login
       const loginRes = await fetch("http://localhost:4000/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: tempCredentials.email,
-          password: tempCredentials.password,
-        }),
+        body: JSON.stringify({ email: creds.email, password: creds.password }),
       });
 
       const loginData = await loginRes.json();
-
-      if (!loginRes.ok) {
-        setError("Login failed after registration.");
-        return;
-      }
-
-      const auth: AuthPayload = {
-        token: loginData.token,
-        role: loginData.role || "student",
-        email: tempCredentials.email
-      };
-
-localStorage.setItem("skillforge:auth", JSON.stringify(auth));
-      onLogin(auth); // pass full auth object
-    } catch {
-      setError("Failed to complete registration.");
+      const auth = { token: loginData.token, role: loginData.role, email: creds.email };
+      localStorage.setItem("skillforge:auth", JSON.stringify(auth));
+      onLogin(auth);
+    } catch (err: any) {
+      setError(err.message);
+      setShowQuiz(false);
     }
   };
-
-  // UI
-      
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
       {showQuiz ? (
-        <PlacementQuiz onComplete={handleQuizComplete} />
+        <PlacementQuiz onComplete={handleFinalRegistration} />
       ) : (
-        <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-8 w-full max-w-md">
-          {/* Logo */}
+        <div className="bg-white rounded-xl shadow-lg border p-8 w-full max-w-md">
           <div className="flex items-center justify-center gap-3 mb-6">
             <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-2 rounded-lg">
               <Code2 className="text-white" size={24} />
             </div>
-            <h1 className="text-2xl font-bold text-gray-900">
-              SkillForge AI
-            </h1>
+            <h1 className="text-2xl font-bold text-gray-900">SkillForge AI</h1>
           </div>
 
-          <h2 className="text-xl font-semibold text-gray-800 mb-6 text-center">
-            {isRegistering ? "Create Account" : "Sign In"}
-          </h2>
-
-          {/* Form */}
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Email
-              </label>
-              <input
-                type="email"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                placeholder="Enter your email"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-              />
+          {/* Role Switcher (Registration Only) */}
+          {isRegistering && (
+            <div className="flex bg-gray-100 p-1 rounded-lg mb-6">
+              <button
+                onClick={() => setRole("student")}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-md text-sm font-medium transition ${role === "student" ? "bg-white shadow text-indigo-600" : "text-gray-500"}`}
+              >
+                <UserIcon size={16} /> Student
+              </button>
+              <button
+                onClick={() => setRole("admin")}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-md text-sm font-medium transition ${role === "admin" ? "bg-white shadow text-indigo-600" : "text-gray-500"}`}
+              >
+                <ShieldCheck size={16} /> Instructor
+              </button>
             </div>
+          )}
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Password
-              </label>
+          <div className="space-y-4">
+            <input
+              type="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              placeholder="Email"
+              className="w-full px-4 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+            <input
+              type="password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              placeholder="Password"
+              className="w-full px-4 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+
+            {isRegistering && role === "admin" && (
               <input
                 type="password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                placeholder="Enter your password"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                value={adminKey}
+                onChange={e => setAdminKey(e.target.value)}
+                placeholder="Admin Secret Key"
+                className="w-full px-4 py-2 border-2 border-indigo-100 bg-indigo-50 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
               />
-            </div>
+            )}
 
             <button
               onClick={handleSubmit}
-              className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white py-2 rounded-lg font-medium hover:shadow-lg transition"
+              className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white py-2 rounded-lg font-medium"
             >
-              {isRegistering ? "Continue to Quiz" : "Login"}
+              {isRegistering ? (role === "admin" ? "Register Admin" : "Continue to Quiz") : "Login"}
             </button>
 
             <button
-              onClick={() => {
-                setIsRegistering(!isRegistering);
-                setError("");
-              }}
+              onClick={() => { setIsRegistering(!isRegistering); setError(""); }}
               className="w-full text-sm text-indigo-600 font-medium"
             >
-              {isRegistering
-                ? "Already have an account? Login"
-                : "Don't have an account? Register"}
+              {isRegistering ? "Already have an account? Login" : "Don't have an account? Register"}
             </button>
           </div>
-
-          {error && (
-            <p className="mt-4 text-sm text-center text-red-600">
-              {error}
-            </p>
-          )}
+          {error && <p className="mt-4 text-sm text-center text-red-600 font-medium">{error}</p>}
         </div>
       )}
     </div>
