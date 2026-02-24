@@ -107,106 +107,106 @@ def analyze_code(source_code):
 `;
 
 async function getPyodideInstance() {
-  if (!pyodide) {
-    pyodide = await loadPyodide();
-    pyodide.FS.writeFile('analyzer_lib.py', ANALYZER_SOURCE);
-    await pyodide.runPythonAsync(`
+    if (!pyodide) {
+        pyodide = await loadPyodide();
+        pyodide.FS.writeFile('analyzer_lib.py', ANALYZER_SOURCE);
+        await pyodide.runPythonAsync(`
 import sys
 from io import StringIO
 if '' not in sys.path:
     sys.path.append('')
     `);
-  }
-  return pyodide;
+    }
+    return pyodide;
 }
 
 self.onmessage = async (event) => {
-  const { code, testCases, functionName } = event.data;
-  const instance = await getPyodideInstance();
+    const { code, testCases, functionName } = event.data;
+    const instance = await getPyodideInstance();
 
-  let hints = [];
-  let summary = {};
-  let passed = undefined;
+    let hints = [];
+    let summary = {};
+    let passed = undefined;
 
-  try {
-    // 1. STATIC ANALYSIS
-    const analysisJson = await instance.runPythonAsync(`
+    try {
+        // 1. STATIC ANALYSIS
+        const analysisJson = await instance.runPythonAsync(`
 import json
 from analyzer_lib import analyze_code
 json.dumps(analyze_code(${JSON.stringify(code)}))
     `);
-    const analysis = JSON.parse(analysisJson);
-    hints = analysis.hints || [];
-    summary = analysis.summary || {};
+        const analysis = JSON.parse(analysisJson);
+        hints = analysis.hints || [];
+        summary = analysis.summary || {};
 
-    if (analysis.raw_matches?.some(m => m.severity === 'CRITICAL')) {
-      self.postMessage({ output: '', error: 'Execution blocked: infinite loop detected.', hints, summary, passed: false });
-      return;
-    }
+        if (analysis.raw_matches?.some(m => m.severity === 'CRITICAL')) {
+            self.postMessage({ output: '', error: 'Execution blocked: infinite loop detected.', hints, summary, passed: false });
+            return;
+        }
 
-    // 2. SETUP CAPTURE & EXECUTE USER CODE
-    await instance.runPythonAsync(`
+        // 2. SETUP CAPTURE & EXECUTE USER CODE
+        await instance.runPythonAsync(`
 sys.stdout = StringIO()
 sys.stderr = StringIO()
     `);
 
-    try {
-      await instance.runPythonAsync(code);
-    } catch (runErr) {
-      self.postMessage({
-        output: instance.runPython('sys.stdout.getvalue()'),
-        error: runErr.toString(),
-        passed: false,
-        hints,
-        summary
-      });
-      return;
-    }
+        try {
+            await instance.runPythonAsync(code);
+        } catch (runErr) {
+            self.postMessage({
+                output: instance.runPython('sys.stdout.getvalue()'),
+                error: runErr.toString(),
+                passed: false,
+                hints,
+                summary
+            });
+            return;
+        }
 
-    // 3. SNAPSHOT USER OUTPUT (This is what they see in the console)
-    const finalUserOutput = instance.runPython('sys.stdout.getvalue()');
-    const finalUserError = instance.runPython('sys.stderr.getvalue()');
+        // 3. SNAPSHOT USER OUTPUT (This is what they see in the console)
+        const finalUserOutput = instance.runPython('sys.stdout.getvalue()');
+        const finalUserError = instance.runPython('sys.stderr.getvalue()');
 
-    // 4. BACKGROUND GRADING
-    if (functionName && testCases) {
-      passed = true;
-      for (const tc of testCases) {
-        // Reset buffers for clean test evaluation
-        await instance.runPythonAsync(`
+        // 4. BACKGROUND GRADING
+        if (functionName && testCases) {
+            passed = true;
+            for (const tc of testCases) {
+                // Reset buffers for clean test evaluation
+                await instance.runPythonAsync(`
 sys.stdout = StringIO()
 sys.stderr = StringIO()
         `);
 
-        try {
-          const result = await instance.runPythonAsync(`${functionName}(${tc.input})`);
-          const capturedOut = instance.runPython('sys.stdout.getvalue()').trim();
+                try {
+                    const result = await instance.runPythonAsync(`${functionName}(${tc.input})`);
 
-          // Use return value if present, otherwise use captured stdout
-          const finalResult = (result !== undefined && result !== null)
-            ? String(result).trim()
-            : capturedOut;
+                    // Only accept explicit return values — do NOT fall back to stdout.
+                    // This correctly fails functions that print instead of return.
+                    const finalResult = (result !== undefined && result !== null && String(result).trim() !== 'None')
+                        ? String(result).trim()
+                        : '__NO_RETURN__';
 
-          if (finalResult !== tc.output.trim()) {
-            passed = false;
-            break;
-          }
-        } catch (testErr) {
-          passed = false;
-          break;
+                    if (finalResult !== tc.output.trim()) {
+                        passed = false;
+                        break;
+                    }
+                } catch (testErr) {
+                    passed = false;
+                    break;
+                }
+            }
         }
-      }
+
+        // 5. RESPOND WITH SNAPSHOTTED DATA
+        self.postMessage({
+            output: finalUserOutput,
+            error: finalUserError,
+            hints,
+            summary,
+            passed
+        });
+
+    } catch (err) {
+        self.postMessage({ output: '', error: err.toString(), hints: [], summary: {}, passed: false });
     }
-
-    // 5. RESPOND WITH SNAPSHOTTED DATA
-    self.postMessage({
-      output: finalUserOutput,
-      error: finalUserError,
-      hints,
-      summary,
-      passed
-    });
-
-  } catch (err) {
-    self.postMessage({ output: '', error: err.toString(), hints: [], summary: {}, passed: false });
-  }
 };

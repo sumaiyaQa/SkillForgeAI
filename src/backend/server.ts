@@ -5,72 +5,54 @@ import authRoutes from './routes/auth.js';
 import userRoutes from './routes/user.js';
 import progressRoutes from './routes/progress.js';
 import feedbackRoutes from './routes/feedback.js';
+import adminRoutes    from './routes/admin.js';
+import problemRoutes  from './routes/problems.js';
 
 import { pool } from './db.js';
 
 const app = express();
 
-// MIDDLEWARE
+// ── Middleware ────────────────────────────────────────────────────────────────
 
-// Enables CORS so the frontend application can communicate with the backend API.
-// This must be registered before any routes.
- 
 app.use(
   cors({
-    origin: 'http://localhost:5173', // Frontend (Vite)
+    origin: 'http://localhost:5173',
     credentials: true,
   })
 );
 
-// Parses incoming JSON request bodies.
- 
 app.use(express.json());
 
-// HEALTH CHECK
+// ── Health check ──────────────────────────────────────────────────────────────
 
-// Simple endpoint to verify database connectivity.
-// Useful during development and debugging.
- 
 app.get('/', async (_req, res) => {
   try {
-    const result = await pool.query(
-      "SELECT 'Database connected!' AS msg"
-    );
+    const result = await pool.query("SELECT 'Database connected!' AS msg");
     res.json(result.rows[0]);
   } catch {
     res.status(500).json({ message: 'Database connection failed' });
   }
 });
 
-// ROUTES
+// ── Routes ────────────────────────────────────────────────────────────────────
 
-// Authentication
- 
-app.use('/auth', authRoutes);
-
-// Authenticated user utilities
-
-app.use('/user', userRoutes);
-
-// Student progress persistence and admin analytics
-
+app.use('/auth',     authRoutes);
+app.use('/user',     userRoutes);
 app.use('/progress', progressRoutes);
-
-// Student feedback submission and admin review
-
 app.use('/feedback', feedbackRoutes);
+app.use('/admin',    adminRoutes);
+app.use('/problems', problemRoutes);   // public problem list (requires login)
 
-// SERVER START
-
-const PORT = 4000;
-
+// ── Global error handler ──────────────────────────────────────────────────────
 
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error('Unhandled error:', err);
   res.status(500).json({ message: 'Internal server error' });
 });
 
+// ── Start ─────────────────────────────────────────────────────────────────────
 
+const PORT = 4000;
 app.listen(PORT, () => {
   console.log(`Backend running on http://localhost:${PORT}`);
 });
