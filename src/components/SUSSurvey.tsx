@@ -5,10 +5,10 @@ import { calculateSUS } from '../utils/sus';
 
 // Standard SUS questionnaire consisting of 10 items.
 // Responses are given on a 5-point Likert scale.
- 
+
 //  Odd-numbered questions are positively worded.
 // Even-numbered questions are negatively worded.
- 
+
 const questions = [
   'I think that I would like to use this system frequently.',
   'I found the system unnecessarily complex.',
@@ -24,27 +24,26 @@ const questions = [
 
 interface Props {
   // Called once the user completes the survey.
-  // The calculated SUS score is passed to the parent.
-   
-  onComplete: (score: number) => void;
+  // Both score and raw responses are passed so the parent can persist them
+  // to the backend using the auth token it already holds.
+  onComplete: (score: number, responses: number[]) => void;
 }
 
 // SUSSurvey
-// Displays a modal-based usability survey after a study session. The component is intentionally lightweight and does not persist results to the backend.
- 
+// Displays a modal-based usability survey after a study session.
+// Calculates the SUS score locally and delegates persistence to the parent.
+
 export default function SUSSurvey({ onComplete }: Props) {
-  
+
   // Stores user responses for each question.
   // Default value of 3 represents a neutral response.
-   
   const [responses, setResponses] = useState<number[]>(
     new Array(10).fill(3)
   );
 
   const [error, setError] = useState<string | null>(null);
 
-// Validates responses and calculates the SUS score.
-   
+  // Validates responses and calculates the SUS score.
   const handleSubmit = () => {
     // Ensure all responses are within valid range
     const invalid = responses.some(r => r < 1 || r > 5);
@@ -55,7 +54,7 @@ export default function SUSSurvey({ onComplete }: Props) {
     }
 
     const score = calculateSUS(responses);
-    onComplete(score);
+    onComplete(score, responses);
   };
 
   return (
@@ -66,7 +65,7 @@ export default function SUSSurvey({ onComplete }: Props) {
           User Experience Survey
         </h2>
         <p className="text-gray-500 mb-6 text-sm">
-          Please rate your experience.  
+          Please rate your experience.
           1 = Strongly Disagree, 5 = Strongly Agree.
         </p>
 
@@ -114,7 +113,7 @@ export default function SUSSurvey({ onComplete }: Props) {
         {/*SUBMIT*/}
         <button
           onClick={handleSubmit}
-          className="w-full mt-8 bg-emerald-600 text-white py-4 rounded-xl font-bold hover:bg-emerald-700 shadow-lg"
+          className="w-full mt-8 bg-emerald-600 text-white py-4 rounded-xl font-bold hover:bg-emerald-700 shadow-lg transition-opacity"
         >
           Submit Evaluation
         </button>

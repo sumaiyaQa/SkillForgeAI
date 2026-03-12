@@ -1,12 +1,13 @@
 import express from 'express';
 import cors from 'cors';
 
-import authRoutes from './routes/auth.js';
-import userRoutes from './routes/user.js';
+import authRoutes    from './routes/auth.js';
+import userRoutes    from './routes/user.js';
 import progressRoutes from './routes/progress.js';
 import feedbackRoutes from './routes/feedback.js';
-import adminRoutes    from './routes/admin.js';
-import problemRoutes  from './routes/problems.js';
+import adminRoutes   from './routes/admin.js';
+import problemRoutes from './routes/problems.js';
+import susRoutes     from './routes/sus.js';
 
 import { pool } from './db.js';
 
@@ -41,7 +42,8 @@ app.use('/user',     userRoutes);
 app.use('/progress', progressRoutes);
 app.use('/feedback', feedbackRoutes);
 app.use('/admin',    adminRoutes);
-app.use('/problems', problemRoutes);   // public problem list (requires login)
+app.use('/problems', problemRoutes);
+app.use('/sus',      susRoutes);
 
 // ── Global error handler ──────────────────────────────────────────────────────
 

@@ -1,5 +1,44 @@
+/**
+ * PlacementQuiz.tsx
+ *
+ * PURPOSE:
+ * This component runs an 8-question Python diagnostic quiz shown to new
+ * students immediately after their first login. It does two things:
+ *
+ *   1. Derives a coarse skill level label (beginner / intermediate / advanced)
+ *      for backward compatibility with the skill_level database column.
+ *
+ *   2. More importantly — seeds PER-CONCEPT BKT priors from the quiz answers.
+ *      Instead of every concept starting at the default 0.3 prior, the student
+ *      begins with meaningful, differentiated knowledge estimates.
+ *
+ * WHY THIS MATTERS (academic justification):
+ * Bayesian Knowledge Tracing assumes a prior P(L0) for each concept. Using
+ * the same prior for all students ignores pre-existing knowledge. By running
+ * updateMastery() from bkt.ts on each quiz response, we perform a single
+ * BKT update step before any practice begins. A student who answers the
+ * recursion question correctly starts with recursion mastery ~0.75; one who
+ * gets it wrong starts at ~0.15. This directly feeds:
+ *   - recommendedProblems ordering in App.tsx (weakest concepts first)
+ *   - selectAdaptiveHint() ZPD level selection in Hint.ts
+ *
+ * FLOW:
+ *   Login → (new student, no saved profile) → PlacementQuiz → App
+ *   Login → (returning student, saved profile) → App (quiz skipped)
+ *
+ * Reference: Corbett & Anderson (1995). Knowledge tracing: Modeling the
+ * acquisition of procedural knowledge. UMUAI 4(4), 253–278.
+ */
+
 import React, { useState } from 'react';
-import { CheckCircle, XCircle } from 'lucide-react';
+import { CheckCircle, XCircle, Brain } from 'lucide-react';
+import { updateMastery } from '../../models/bkt';
+// ^ Path assumes this file lives at src/components/student/PlacementQuiz.tsx
+// If your folder structure differs, adjust to match where bkt.ts actually is.
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 interface Question {
   id: number;
@@ -10,8 +49,25 @@ interface Question {
   concept: string;
 }
 
-// 8 questions spanning easy → hard, covering key Python concepts.
-// Scoring: ≥7 = advanced, ≥4 = intermediate, else beginner.
+/**
+ * PlacementResult — the object passed to onComplete().
+ *
+ * `level` is the coarse label stored in the DB.
+ * `conceptPriors` is the important part — a Record<concept, mastery> that
+ * App.tsx writes directly into userProfile.conceptMastery, seeding BKT.
+ */
+export interface PlacementResult {
+  level: 'beginner' | 'intermediate' | 'advanced';
+  conceptPriors: Record<string, number>;
+}
+
+// ---------------------------------------------------------------------------
+// Question bank
+// 8 questions, easy → hard, covering 8 distinct Python concepts.
+// Each concept maps to concept tags used in the problem database,
+// so the priors derived here directly influence problem ordering.
+// ---------------------------------------------------------------------------
+
 const placementQuestions: Question[] = [
   {
     id: 1,
@@ -52,7 +108,7 @@ const placementQuestions: Question[] = [
   },
   {
     id: 5,
-    text: 'Which code snippet correctly checks if a key exists in a dictionary?',
+    text: "Which code snippet correctly checks if a key exists in a dictionary?",
     options: [
       "d.hasKey('x')",
       "'x' in d",
@@ -89,15 +145,113 @@ const placementQuestions: Question[] = [
   },
 ];
 
+// ---------------------------------------------------------------------------
+// BKT Prior Derivation
+// ---------------------------------------------------------------------------
+
+/**
+ * CONCEPT MAPPING — quiz concept → DB problem concept tags
+ *
+ * The quiz uses broad concept names ('types', 'loops') while the problem
+ * database uses fine-grained tags ('strings', 'print', 'for-loops').
+ * This map ensures quiz priors seed BKT for the right problem concepts
+ * so the adaptive ordering and hint system actually uses them.
+ */
+const QUIZ_TO_DB_CONCEPTS: Record<string, string[]> = {
+  types:        ['types', 'strings', 'integers', 'floats', 'booleans'],
+  functions:    ['functions', 'return-values', 'parameters'],
+  loops:        ['loops', 'for-loops', 'while-loops', 'iteration'],
+  lists:        ['lists', 'arrays', 'indexing', 'slicing'],
+  dictionaries: ['dictionaries', 'hashmaps', 'key-value'],
+  algorithms:   ['algorithms', 'binary-search', 'sorting', 'complexity'],
+  recursion:    ['recursion', 'base-case', 'call-stack'],
+  memoisation:  ['memoisation', 'memoization', 'dynamic-programming', 'caching'],
+};
+
+/**
+ * deriveConceptPriors()
+ *
+ * Converts quiz responses into per-concept BKT starting values.
+ *
+ * HOW IT WORKS:
+ * For each question answered, we run one BKT update step (updateMastery from
+ * bkt.ts) starting from the default neutral prior of 0.3. This gives us a
+ * posterior belief about whether the student knows that concept.
+ *
+ * We then apply a difficulty weight: harder questions carry more diagnostic
+ * signal. Getting a hard question right is stronger evidence of knowledge
+ * than getting an easy one right. We scale the deviation from 0.5 by this
+ * weight to amplify the signal appropriately.
+ *
+ * Result: { loops: 0.15, recursion: 0.75, functions: 0.75, ... }
+ * These values go straight into userProfile.conceptMastery in App.tsx.
+ */
+function deriveConceptPriors(
+  responses: Array<{ concept: string; correct: boolean; difficulty: 'easy' | 'medium' | 'hard' }>
+): Record<string, number> {
+  const priors: Record<string, number> = {};
+
+  for (const { concept, correct, difficulty } of responses) {
+    const neutralPrior = 0.3;
+
+    const difficultyWeight =
+      difficulty === 'hard' ? 1.3 :
+      difficulty === 'medium' ? 1.1 : 1.0;
+
+    let updated = updateMastery(neutralPrior, correct);
+
+    const deviation = (updated - 0.5) * difficultyWeight;
+    updated = Math.min(1, Math.max(0, 0.5 + deviation));
+
+    // Write the prior for the quiz concept AND all its DB tag aliases.
+    // This ensures recommendedProblems ordering in App.tsx sees the values
+    // no matter which tag the problem uses.
+    const dbConcepts = QUIZ_TO_DB_CONCEPTS[concept] ?? [concept];
+    for (const tag of dbConcepts) {
+      priors[tag] = updated;
+    }
+  }
+
+  return priors;
+}
+
+/**
+ * deriveSkillLevel()
+ *
+ * Maps raw score percentage to the coarse skill label.
+ * Stored in the DB for compatibility — but the real adaptation
+ * uses conceptPriors, not this label.
+ */
+function deriveSkillLevel(
+  score: number,
+  total: number
+): 'beginner' | 'intermediate' | 'advanced' {
+  const pct = score / total;
+  if (pct >= 0.75) return 'advanced';
+  if (pct >= 0.45) return 'intermediate';
+  return 'beginner';
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
 export default function PlacementQuiz({
   onComplete,
 }: {
-  onComplete: (level: string) => void;
+  onComplete: (result: PlacementResult) => void;
 }) {
   const [currentStep, setCurrentStep] = useState(0);
   const [score, setScore] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
   const [confirmed, setConfirmed] = useState(false);
+  const [responses, setResponses] = useState<
+    Array<{ concept: string; correct: boolean; difficulty: 'easy' | 'medium' | 'hard' }>
+  >([]);
+
+  // Once the last question is answered, we show a results screen before
+  // calling onComplete(). quizResult holds the derived data for that screen.
+  const [quizResult, setQuizResult] = useState<PlacementResult | null>(null);
 
   const question = placementQuestions[currentStep];
   const isLastQuestion = currentStep === placementQuestions.length - 1;
@@ -113,22 +267,96 @@ export default function PlacementQuiz({
   };
 
   const handleNext = () => {
-    const newScore = selectedAnswer === question.correct ? score + 1 : score;
+    const isCorrect = selectedAnswer === question.correct;
+    const newScore = isCorrect ? score + 1 : score;
+
+    const newResponses = [
+      ...responses,
+      { concept: question.concept, correct: isCorrect, difficulty: question.difficulty },
+    ];
 
     if (isLastQuestion) {
-      let level = 'beginner';
-      if (newScore >= 7) level = 'advanced';
-      else if (newScore >= 4) level = 'intermediate';
-      onComplete(level);
+      const conceptPriors = deriveConceptPriors(newResponses);
+      const level = deriveSkillLevel(newScore, placementQuestions.length);
+      // Show results screen instead of immediately calling onComplete
+      setQuizResult({ level, conceptPriors });
     } else {
       setScore(newScore);
+      setResponses(newResponses);
       setCurrentStep(s => s + 1);
       setSelectedAnswer(null);
       setConfirmed(false);
     }
   };
 
-  const progressPercent = ((currentStep) / placementQuestions.length) * 100;
+  // ---- Results Screen ----
+  if (quizResult) {
+    const totalQuestions = placementQuestions.length;
+    const correctCount = Object.values(quizResult.conceptPriors).filter(v => v > 0.5).length;
+    const levelColors = {
+      beginner: 'text-amber-600 bg-amber-50 border-amber-200',
+      intermediate: 'text-blue-600 bg-blue-50 border-blue-200',
+      advanced: 'text-emerald-600 bg-emerald-50 border-emerald-200',
+    };
+    const levelEmoji = { beginner: '🌱', intermediate: '⚡', advanced: '🚀' };
+
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-8 w-full max-w-xl">
+          <div className="text-center mb-6">
+            <div className="text-4xl mb-3">{levelEmoji[quizResult.level]}</div>
+            <h2 className="text-2xl font-black text-gray-900 mb-1">Assessment Complete</h2>
+            <p className="text-sm text-gray-500">Here's what we learned about your Python knowledge</p>
+          </div>
+
+          {/* Level badge */}
+          <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full border font-bold text-sm mb-6 mx-auto flex justify-center ${levelColors[quizResult.level]}`}>
+            Placed as: <span className="capitalize">{quizResult.level}</span>
+          </div>
+
+          {/* Per-concept breakdown */}
+          <div className="space-y-2 mb-6">
+            <p className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">Concept Mastery Estimates</p>
+            {placementQuestions.map(q => {
+              // Get the primary DB tag mastery value
+              const primaryTag = QUIZ_TO_DB_CONCEPTS[q.concept]?.[0] ?? q.concept;
+              const mastery = quizResult.conceptPriors[primaryTag] ?? 0.3;
+              const pct = Math.round(mastery * 100);
+              const isStrong = mastery > 0.5;
+              return (
+                <div key={q.concept} className="flex items-center gap-3">
+                  <span className="text-xs font-semibold text-gray-600 w-24 capitalize">{q.concept}</span>
+                  <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${isStrong ? 'bg-emerald-400' : 'bg-red-300'}`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  <span className={`text-xs font-bold w-10 text-right ${isStrong ? 'text-emerald-600' : 'text-red-500'}`}>
+                    {pct}%
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+
+          <p className="text-xs text-gray-400 text-center mb-6">
+            Problems will be ordered by your weakest concepts first.
+          </p>
+
+          <button
+            onClick={() => onComplete(quizResult)}
+            className="w-full py-3 rounded-xl bg-indigo-600 text-white font-bold text-sm hover:bg-indigo-700 transition-colors"
+          >
+            Start Learning →
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Progress bar fill: grows as student advances through questions
+  const progressPercent = (currentStep / placementQuestions.length) * 100;
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
@@ -136,9 +364,12 @@ export default function PlacementQuiz({
 
         {/* Header */}
         <div className="mb-6">
-          <h2 className="text-xl font-black text-gray-900">Skill Assessment</h2>
-          <p className="text-sm text-gray-500 mt-1">
-            We'll use your answers to personalise your learning path.
+          <div className="flex items-center gap-2 mb-1">
+            <Brain size={20} className="text-indigo-600" />
+            <h2 className="text-xl font-black text-gray-900">Skill Assessment</h2>
+          </div>
+          <p className="text-sm text-gray-500">
+            Your answers seed personalised knowledge estimates for each concept.
           </p>
         </div>
 
@@ -146,89 +377,82 @@ export default function PlacementQuiz({
         <div className="mb-6">
           <div className="flex justify-between text-xs text-gray-400 mb-1">
             <span>Question {currentStep + 1} of {placementQuestions.length}</span>
-            <span className={`font-bold uppercase text-[10px] px-2 py-0.5 rounded-full ${
-              question.difficulty === 'hard'
-                ? 'bg-red-100 text-red-500'
-                : question.difficulty === 'medium'
-                ? 'bg-amber-100 text-amber-500'
-                : 'bg-emerald-100 text-emerald-500'
-            }`}>
+            <span className="capitalize font-semibold text-indigo-500">
               {question.difficulty}
             </span>
           </div>
           <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
             <div
-              className="h-full bg-indigo-500 transition-all duration-300"
+              className="h-full bg-indigo-500 transition-all duration-500"
               style={{ width: `${progressPercent}%` }}
             />
           </div>
         </div>
 
-        {/* Question */}
-        <p className="font-semibold text-gray-800 mb-1 text-sm">
-          {question.text.split('\n').map((line, i) =>
-            line.startsWith('def ') || line.startsWith('    ') || line.startsWith('print') || line.startsWith('for ') ? (
-              <code key={i} className="block font-mono bg-gray-50 border rounded px-2 py-0.5 text-xs mt-1 text-gray-700">
-                {line}
-              </code>
-            ) : (
-              <span key={i} className="block">{line}</span>
-            )
-          )}
-        </p>
-        <p className="text-xs text-indigo-500 font-medium mb-4">Concept: {question.concept}</p>
+        {/* Question text — whitespace-pre-wrap preserves code indentation */}
+        <div className="mb-6">
+          <p className="font-semibold text-gray-800 whitespace-pre-wrap text-sm leading-relaxed">
+            {question.text}
+          </p>
+          <span className="inline-block mt-2 text-[10px] uppercase tracking-wider font-bold text-indigo-400 bg-indigo-50 px-2 py-0.5 rounded-full">
+            {question.concept}
+          </span>
+        </div>
 
-        {/* Options */}
-        <div className="space-y-2 mb-6">
+        {/* Answer options */}
+        <div className="space-y-3 mb-6">
           {question.options.map((opt, i) => {
-            let style =
-              'w-full text-left p-3 rounded-lg border text-sm transition-all font-medium ';
+            // Build the button's className based on state
+            let base = 'w-full text-left px-4 py-3 rounded-lg border text-sm transition-all';
+
             if (!confirmed) {
-              style +=
-                selectedAnswer === i
-                  ? 'bg-indigo-50 border-indigo-500 text-indigo-800'
-                  : 'bg-gray-50 border-gray-200 hover:border-indigo-300 text-gray-700 cursor-pointer';
+              // Before confirming: highlight selected option in indigo
+              base += selectedAnswer === i
+                ? ' border-indigo-500 bg-indigo-50 font-semibold text-indigo-800'
+                : ' border-gray-200 hover:border-indigo-300 hover:bg-gray-50 text-gray-700';
             } else {
+              // After confirming: show green for correct, red for wrong selection
               if (i === question.correct) {
-                style += 'bg-emerald-50 border-emerald-500 text-emerald-800';
-              } else if (i === selectedAnswer && selectedAnswer !== question.correct) {
-                style += 'bg-red-50 border-red-400 text-red-700';
+                base += ' border-emerald-500 bg-emerald-50 text-emerald-800 font-semibold';
+              } else if (i === selectedAnswer) {
+                base += ' border-red-400 bg-red-50 text-red-700';
               } else {
-                style += 'bg-gray-50 border-gray-200 text-gray-400';
+                base += ' border-gray-200 text-gray-400';
               }
             }
 
             return (
-              <button key={i} onClick={() => handleSelect(i)} className={style}>
-                <div className="flex items-center justify-between">
-                  <span>{opt}</span>
+              <button key={i} className={base} onClick={() => handleSelect(i)}>
+                <div className="flex items-center gap-3">
+                  {/* Show tick/cross icons after confirming */}
                   {confirmed && i === question.correct && (
-                    <CheckCircle size={16} className="text-emerald-500" />
+                    <CheckCircle size={16} className="text-emerald-600 shrink-0" />
                   )}
-                  {confirmed && i === selectedAnswer && selectedAnswer !== question.correct && (
-                    <XCircle size={16} className="text-red-500" />
+                  {confirmed && i === selectedAnswer && i !== question.correct && (
+                    <XCircle size={16} className="text-red-500 shrink-0" />
                   )}
+                  <span>{opt}</span>
                 </div>
               </button>
             );
           })}
         </div>
 
-        {/* Action buttons */}
+        {/* Action button — two-step: Confirm then Next */}
         {!confirmed ? (
           <button
             onClick={handleConfirm}
             disabled={selectedAnswer === null}
-            className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold disabled:opacity-40 hover:bg-indigo-700 transition-colors"
+            className="w-full py-3 rounded-xl bg-indigo-600 text-white font-bold text-sm hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             Confirm Answer
           </button>
         ) : (
           <button
             onClick={handleNext}
-            className="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold hover:bg-emerald-700 transition-colors"
+            className="w-full py-3 rounded-xl bg-gray-900 text-white font-bold text-sm hover:bg-gray-700 transition-colors"
           >
-            {isLastQuestion ? 'See My Level →' : 'Next Question →'}
+            {isLastQuestion ? 'View My Results →' : 'Next Question →'}
           </button>
         )}
       </div>

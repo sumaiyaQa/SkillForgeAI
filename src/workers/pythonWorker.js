@@ -38,11 +38,18 @@ def analyze_code(source_code):
                 if has_print and not has_return:
                     add_unique_hint(f"💡 Function '{node.name}' prints instead of returning a value.")
 
-        # RULE 3: Hard-coded return value
+        # RULE 3: Hardcoded bare constant return (not bool, not ternary, not None)
         for node in ast.walk(tree):
-            if isinstance(node, ast.Return) and isinstance(node.value, ast.Constant):
-                add_unique_hint("🚨 A constant value is returned. Ensure your solution works for all inputs.")
-
+            if isinstance(node, ast.Return):
+                val = node.value
+                if (
+                    isinstance(val, ast.Constant)
+                    and not isinstance(val.value, bool)
+                    and not isinstance(val.value, type(None))
+                ):
+                    add_unique_hint("🚨 A constant value is returned. Ensure your solution works for all inputs.")
+                elif isinstance(val, ast.IfExp):
+                    pass
         # RULE 4: Function only contains pass
         for node in ast.walk(tree):
             if isinstance(node, ast.FunctionDef):
@@ -186,7 +193,7 @@ sys.stderr = StringIO()
                         ? String(result).trim()
                         : '__NO_RETURN__';
 
-                    if (finalResult !== tc.output.trim()) {
+                    if (finalResult.toLowerCase() !== tc.output.trim().toLowerCase()) {
                         passed = false;
                         break;
                     }

@@ -3,12 +3,14 @@ import { Code2, ShieldCheck, UserIcon } from "lucide-react";
 import PlacementQuiz from "../student/PlacementQuiz";
 
 // TYPES
-    
+
 
 interface AuthPayload {
   email: string;
   token: string;
   role: "student" | "admin";
+  quizResult?: { level: string; conceptPriors: Record<string, number> };
+
 }
 
 interface Props {
@@ -16,7 +18,7 @@ interface Props {
 }
 
 // LOGIN COMPONENT
-    
+
 
 export default function Login({ onLogin }: Props) {
   const [email, setEmail] = useState("");
@@ -45,7 +47,7 @@ export default function Login({ onLogin }: Props) {
           return;
         }
         // Direct Registration for Admins (Skip Quiz)
-        await handleFinalRegistration("expert"); 
+        await handleFinalRegistration({ level: "expert", conceptPriors: {} });
       } else {
         // Students go to Quiz
         setTempCredentials({ email, password, role: "student" });
@@ -78,10 +80,10 @@ export default function Login({ onLogin }: Props) {
     }
   };
 
-  const handleFinalRegistration = async (level: string) => {
-    const creds = isRegistering && role === "admin" 
-      ? { email, password, role, adminKey } 
-      : { ...tempCredentials, skillLevel: level };
+  const handleFinalRegistration = async (result: { level: string; conceptPriors: Record<string, number> }) => {
+    const creds = isRegistering && role === "admin"
+      ? { email, password, role, adminKey }
+      : { ...tempCredentials, skillLevel: result.level };
 
     try {
       const registerRes = await fetch("http://localhost:4000/auth/register", {
@@ -101,7 +103,7 @@ export default function Login({ onLogin }: Props) {
       });
 
       const loginData = await loginRes.json();
-      const auth = { token: loginData.token, role: loginData.role, email: creds.email };
+      const auth = { token: loginData.token, role: loginData.role, email: creds.email, quizResult: result };
       localStorage.setItem("skillforge:auth", JSON.stringify(auth));
       onLogin(auth);
     } catch (err: any) {

@@ -1,66 +1,70 @@
-import express from 'express';
-import { pool } from '../db.js';
-import { authenticateToken, type AuthRequest } from '../middleware/auth.js';
+import express from "express";
+import { pool } from "../db.js";
+import { authenticateToken, type AuthRequest } from "../middleware/auth.js";
 
 const router = express.Router();
 
 /* ================================================================
-   SAVE USER PROGRESS (STUDENT)
+   SAVE USER PROGRESS
 ================================================================ */
 
-router.post('/', authenticateToken, async (req: AuthRequest, res) => {
+router.post("/", authenticateToken, async (req: AuthRequest, res) => {
   const userId = req.userId;
 
-  if (req.role === 'admin') {
-    return res.status(403).json({ message: 'Admins do not have learning progress' });
+  if (req.role === "admin") {
+    return res.status(403).json({ message: "Admins do not have learning progress" });
   }
 
   const { profile, lastProblemId, lastCode } = req.body;
+
+  if (!profile) {
+    return res.status(400).json({ message: "Profile required" });
+  }
 
   try {
     await pool.query(
       `
       INSERT INTO user_progress (user_id, profile, last_problem_id, last_code)
-      VALUES ($1, $2::jsonb, $3, $4)
+      VALUES ($1,$2::jsonb,$3,$4)
       ON CONFLICT (user_id)
       DO UPDATE SET
-        profile          = EXCLUDED.profile,
-        last_problem_id  = EXCLUDED.last_problem_id,
-        last_code        = EXCLUDED.last_code,
-        updated_at       = NOW()
+        profile = EXCLUDED.profile,
+        last_problem_id = EXCLUDED.last_problem_id,
+        last_code = EXCLUDED.last_code,
+        updated_at = NOW()
       `,
       [userId, JSON.stringify(profile), lastProblemId, lastCode]
     );
 
-    res.json({ message: 'Progress saved successfully' });
+    res.json({ message: "Progress saved successfully" });
   } catch (err) {
-    console.error('SAVE PROGRESS ERROR:', err);
-    res.status(500).json({ message: 'Failed to save progress' });
+    console.error("SAVE PROGRESS ERROR:", err);
+    res.status(500).json({ message: "Failed to save progress" });
   }
 });
 
 /* ================================================================
-   LOAD USER PROGRESS (STUDENT)
+   LOAD USER PROGRESS
 ================================================================ */
 
-router.get('/', authenticateToken, async (req: AuthRequest, res) => {
+router.get("/", authenticateToken, async (req: AuthRequest, res) => {
   const userId = req.userId;
 
-  if (req.role === 'admin') {
-    return res.status(403).json({ message: 'Admins do not have learning progress' });
+  if (req.role === "admin") {
+    return res.status(403).json({ message: "Admins do not have learning progress" });
   }
 
   try {
     const userResult = await pool.query(
-      'SELECT skill_level FROM users WHERE id = $1',
+      "SELECT skill_level FROM users WHERE id = $1",
       [userId]
     );
 
     if (userResult.rowCount === 0) {
-      return res.status(401).json({ message: 'User does not exist' });
+      return res.status(401).json({ message: "User does not exist" });
     }
 
-    const skillLevel = userResult.rows[0].skill_level || 'beginner';
+    const skillLevel = userResult.rows[0].skill_level || "beginner";
 
     const progressResult = await pool.query(
       `SELECT profile, last_problem_id, last_code
@@ -100,7 +104,6 @@ router.get('/', authenticateToken, async (req: AuthRequest, res) => {
       profile: {
         ...savedProfile,
         skillLevel,
-        // Ensure arrays exist even if the stored profile pre-dates these fields
         learningTrajectory: savedProfile.learningTrajectory ?? [],
         errorHistory: savedProfile.errorHistory ?? [],
         solvedProblemIds: savedProfile.solvedProblemIds ?? [],
@@ -111,140 +114,107 @@ router.get('/', authenticateToken, async (req: AuthRequest, res) => {
       last_code: progressResult.rows[0].last_code,
     });
   } catch (err) {
-    console.error('LOAD PROGRESS ERROR:', err);
-    res.status(500).json({ message: 'Failed to load progress' });
+    console.error("LOAD PROGRESS ERROR:", err);
+    res.status(500).json({ message: "Failed to load progress" });
   }
 });
 
 /* ================================================================
-   ADMIN SUMMARY (ANALYTICS)
+   ADMIN SUMMARY
 ================================================================ */
 
-router.get('/summary', authenticateToken, async (req: AuthRequest, res) => {
-  if (req.role !== 'admin') {
-    return res.status(403).json({ message: 'Admin access required' });
+router.get("/summary", authenticateToken, async (req: AuthRequest, res) => {
+  if (req.role !== "admin") {
+    return res.status(403).json({ message: "Admin access required" });
   }
 
   try {
-    /* ---- Total students ---- */
-    const totalStudentsResult = await pool.query(`
-      SELECT COUNT(*)::int AS count
-      FROM users
-      WHERE role = 'student'
-    `);
-
-    /* ---- Skill distribution ---- */
-    const skillDistribution = await pool.query(`
-      SELECT
-        u.skill_level AS level,
-        COUNT(*)::int  AS count
+    const studentsResult = await pool.query(`
+      SELECT u.skill_level, p.profile
       FROM users u
-      JOIN user_progress p ON p.user_id = u.id
-      WHERE u.role = 'student'
-      GROUP BY u.skill_level
-      ORDER BY u.skill_level
-    `);
-
-    /* ---- Averages ---- */
-    const averages = await pool.query(`
-      SELECT
-        COALESCE(AVG((p.profile->>'problemsSolved')::int), 0)       AS avg_solved,
-        COALESCE(AVG(
-          CASE
-            WHEN (p.profile->>'totalSubmissions')::int > 0
-            THEN (p.profile->>'successfulSubmissions')::float
-                 / (p.profile->>'totalSubmissions')::float
-            ELSE 0
-          END
-        ), 0) AS avg_success
-      FROM users u
-      JOIN user_progress p ON p.user_id = u.id
+      LEFT JOIN user_progress p ON p.user_id = u.id
       WHERE u.role = 'student'
     `);
 
-    /* ---- Concept mastery heatmap ---- */
-    const conceptHeatmapResult = await pool.query(`
-      SELECT
-        key                  AS concept,
-        AVG(value::float)    AS mastery
-      FROM users u
-      JOIN user_progress p ON p.user_id = u.id,
-      LATERAL jsonb_each_text(
-        COALESCE(p.profile->'conceptMastery', '{}'::jsonb)
-      )
-      WHERE u.role = 'student'
-      GROUP BY key
-      ORDER BY mastery ASC
-    `);
+    const rows = studentsResult.rows;
 
-    /* ---- Error frequency ---- */
-    const errorFrequencyResult = await pool.query(`
-      SELECT
-        key              AS error_type,
-        SUM(value::int)  AS count
-      FROM users u
-      JOIN user_progress p ON p.user_id = u.id,
-      LATERAL jsonb_each_text(
-        COALESCE(p.profile->'errorPatterns', '{}'::jsonb)
-      )
-      WHERE u.role = 'student'
-      GROUP BY key
-      ORDER BY count DESC
-    `);
+    const totalStudents = rows.length;
 
-    /* ---- Learning trajectory (aggregate last 50 points per student, flatten + sort) ---- */
-    const trajectoryResult = await pool.query(`
-      SELECT
-        elem->>'timestamp'      AS timestamp,
-        (elem->>'overallMastery')::float AS overall_mastery
-      FROM users u
-      JOIN user_progress p ON p.user_id = u.id,
-      LATERAL jsonb_array_elements(
-        COALESCE(p.profile->'learningTrajectory', '[]'::jsonb)
-      ) AS elem
-      WHERE u.role = 'student'
-      ORDER BY (elem->>'timestamp')::bigint ASC
-      LIMIT 200
-    `);
+    const skillDistribution: Record<string, number> = {
+      beginner: 0,
+      intermediate: 0,
+      advanced: 0,
+    };
 
-    // Group trajectory by timestamp bucket (round to nearest 5 min) and average mastery
-    const trajectoryMap = new Map<number, number[]>();
-    for (const row of trajectoryResult.rows) {
-      const ts = Math.round(Number(row.timestamp) / 300000) * 300000; // 5-min bucket
-      if (!trajectoryMap.has(ts)) trajectoryMap.set(ts, []);
-      trajectoryMap.get(ts)!.push(Number(row.overall_mastery));
+    let totalSolved = 0;
+    let totalSuccess = 0;
+    let totalSubmissions = 0;
+
+    const conceptHeatmap: Record<string, number[]> = {};
+    const errorFrequency: Record<string, number> = {};
+    const trajectory: { timestamp: number; overallMastery: number }[] = [];
+
+    for (const row of rows) {
+      const profile = row.profile || {};
+
+      const level = row.skill_level || "beginner";
+      skillDistribution[level] = (skillDistribution[level] || 0) + 1;
+
+      totalSolved += profile.problemsSolved || 0;
+      totalSuccess += profile.successfulSubmissions || 0;
+      totalSubmissions += profile.totalSubmissions || 0;
+
+      const concepts = profile.conceptMastery || {};
+      for (const concept in concepts) {
+        if (!conceptHeatmap[concept]) conceptHeatmap[concept] = [];
+        conceptHeatmap[concept].push(concepts[concept]);
+      }
+
+      const errors = profile.errorPatterns || {};
+      for (const err in errors) {
+        errorFrequency[err] = (errorFrequency[err] || 0) + errors[err];
+      }
+
+      const traj = profile.learningTrajectory || [];
+      for (const point of traj) {
+        trajectory.push({
+          timestamp: point.timestamp,
+          overallMastery: point.overallMastery,
+        });
+      }
     }
-    const trajectory = Array.from(trajectoryMap.entries())
-      .sort((a, b) => a[0] - b[0])
-      .map(([ts, values]) => ({
-        timestamp: ts,
-        overallMastery: values.reduce((a, b) => a + b, 0) / values.length,
-      }));
+
+    const conceptAvg: Record<string, number> = {};
+    for (const concept in conceptHeatmap) {
+      const values = conceptHeatmap[concept];
+      if (!values || values.length === 0) continue;  // 👈 ADD THIS
+
+      conceptAvg[concept] = values.reduce((a, b) => a + b, 0) / values.length;
+    }
+
+    const skillDistArray = Object.entries(skillDistribution).map(
+      ([level, count]) => ({ level, count })
+    );
+
+    const averages = {
+      avg_solved: totalStudents ? totalSolved / totalStudents : 0,
+      avg_success:
+        totalSubmissions > 0 ? totalSuccess / totalSubmissions : 0,
+    };
 
     res.json({
-      totalStudents: totalStudentsResult.rows[0].count,
-      skillDistribution: skillDistribution.rows,
-      averages: averages.rows[0],
-      conceptHeatmap: conceptHeatmapResult.rows.reduce(
-        (acc: Record<string, number>, row: any) => {
-          acc[row.concept] = parseFloat(row.mastery);
-          return acc;
-        },
-        {}
-      ),
-      errorFrequency: errorFrequencyResult.rows.reduce(
-        (acc: Record<string, number>, row: any) => {
-          acc[row.error_type] = parseInt(row.count);
-          return acc;
-        },
-        {}
-      ),
+      totalStudents,
+      skillDistribution: skillDistArray,
+      averages,
+      conceptHeatmap: conceptAvg,
+      errorFrequency,
       trajectory,
     });
   } catch (err) {
-    console.error('ADMIN SUMMARY ERROR:', err);
-    res.status(500).json({ message: 'Failed to fetch admin summary' });
+    console.error("ADMIN SUMMARY ERROR:", err);
+    res.status(500).json({ message: "Failed to fetch admin summary" });
   }
 });
 
 export default router;
+
