@@ -10,6 +10,8 @@ import json
 def analyze_code(source_code):
     hints = []
     raw_matches = []
+    print_only_functions = set()
+    parents = {}
 
     def add_unique_hint(msg):
         if msg not in hints:
@@ -17,8 +19,27 @@ def analyze_code(source_code):
 
     try:
         tree = ast.parse(source_code)
+        for parent in ast.walk(tree):
+            for child in ast.iter_child_nodes(parent):
+                parents[child] = parent
 
-        # RULE 1: Infinite while True loop
+        def get_ancestor(node, target_type):
+            current = parents.get(node)
+            while current is not None:
+                if isinstance(current, target_type):
+                    return current
+                current = parents.get(current)
+            return None
+
+        def is_inside_conditional(node):
+            current = parents.get(node)
+            while current is not None:
+                if isinstance(current, (ast.If, ast.IfExp, ast.Match)):
+                    return True
+                current = parents.get(current)
+            return False
+
+    # Check for infinite while loops that never exit
         for node in ast.walk(tree):
             if isinstance(node, ast.While):
                 if isinstance(node.test, ast.Constant) and node.test.value is True:
@@ -27,7 +48,7 @@ def analyze_code(source_code):
                         raw_matches.append({"severity": "CRITICAL"})
                         add_unique_hint("🚨 This while loop has no exit condition. Add a break statement.")
 
-        # RULE 2: Function prints instead of returning
+        # Make sure functions return values instead of just printing
         for node in ast.walk(tree):
             if isinstance(node, ast.FunctionDef):
                 has_return = any(isinstance(n, ast.Return) for n in ast.walk(node))
@@ -36,12 +57,25 @@ def analyze_code(source_code):
                     for n in ast.walk(node)
                 )
                 if has_print and not has_return:
+                    print_only_functions.add(node.name)
                     add_unique_hint(f"💡 Function '{node.name}' prints instead of returning a value.")
 
-        # RULE 3: Hardcoded bare constant return (not bool, not ternary, not None)
+        # Warn about hardcoded return values that don't work for all inputs
         for node in ast.walk(tree):
             if isinstance(node, ast.Return):
                 val = node.value
+                parent_fn = get_ancestor(node, ast.FunctionDef)
+                if parent_fn is None:
+                    continue
+
+                # If the function has no parameters, returning a constant can be intentional.
+                if len(parent_fn.args.args) == 0:
+                    continue
+
+                # Base cases often return constants from conditional branches.
+                if is_inside_conditional(node):
+                    continue
+
                 if (
                     isinstance(val, ast.Constant)
                     and not isinstance(val.value, bool)
@@ -50,13 +84,13 @@ def analyze_code(source_code):
                     add_unique_hint("🚨 A constant value is returned. Ensure your solution works for all inputs.")
                 elif isinstance(val, ast.IfExp):
                     pass
-        # RULE 4: Function only contains pass
+        # Check if functions are actually implemented
         for node in ast.walk(tree):
             if isinstance(node, ast.FunctionDef):
                 if len(node.body) == 1 and isinstance(node.body[0], ast.Pass):
                     add_unique_hint(f"⚠️ Function '{node.name}' is not implemented yet.")
 
-        # RULE 5: Recursive function without base case
+        # Make sure recursive functions have a base case to stop
         for node in ast.walk(tree):
             if isinstance(node, ast.FunctionDef):
                 calls_self = any(
@@ -79,16 +113,15 @@ def analyze_code(source_code):
             if isinstance(node, ast.Attribute) and node.attr == "sort":
                 add_unique_hint("🚀 Built-in sort() detected. Try implementing the algorithm manually.")
 
-        # RULE 8: Function without return
+        # Check if functions return something
         for node in ast.walk(tree):
             if isinstance(node, ast.FunctionDef):
+                if node.name in print_only_functions:
+                    # Avoid duplicate guidance when Rule 2 already explained the root cause.
+                    continue
                 has_return = any(isinstance(n, ast.Return) for n in ast.walk(node))
                 if not has_return:
                     add_unique_hint(f"⚠️ Function '{node.name}' does not return any value.")
-
-        # RULE 9: Hardcoded factorial example
-        if "factorial" in source_code and "5" in source_code:
-            add_unique_hint("⚠️ Avoid hardcoding example values like 5.")
 
         # RULE 10: Unused parameters
         for node in ast.walk(tree):
@@ -135,8 +168,82 @@ self.onmessage = async (event) => {
     let summary = {};
     let passed = undefined;
 
+    const normalizeToken = (value) =>
+        String(value)
+            .trim()
+            .replace(/^['\"]|['\"]$/g, '')
+            .toLowerCase();
+
+    const isNumeric = (value) => {
+        const text = String(value).trim();
+        return text !== '' && !Number.isNaN(Number(text));
+    };
+
+    const normalizeNumber = (value) => Number(String(value).trim());
+
+    const tryParseExpectedList = (raw) => {
+        const text = String(raw ?? '').trim();
+        if (!text.startsWith('[') || !text.endsWith(']')) return null;
+
+        const inner = text.slice(1, -1).trim();
+        if (!inner) return [];
+
+        return inner
+            .split(',')
+            .map(item => normalizeToken(item));
+    };
+
+    const tryParseActualList = (value) => {
+        const text = String(value ?? '').trim();
+        if (!text.startsWith('[') || !text.endsWith(']')) return null;
+
+        const inner = text.slice(1, -1).trim();
+        if (!inner) return [];
+
+        return inner
+            .split(',')
+            .map(item => normalizeToken(item));
+    };
+
+    const valuesMatch = (result, expectedRaw) => {
+        const expectedText = String(expectedRaw ?? '').trim();
+        const expectedNorm = expectedText.toLowerCase();
+
+        const hasReturnValue = result !== undefined && result !== null && String(result).trim() !== 'None';
+        if (!hasReturnValue) {
+            return expectedNorm === '__no_return__';
+        }
+
+        if (Array.isArray(result)) {
+            const expectedList = tryParseExpectedList(expectedText);
+            if (expectedList) {
+                const resultList = result.map(item => normalizeToken(item));
+                if (resultList.length !== expectedList.length) return false;
+                return resultList.every((item, index) => item === expectedList[index]);
+            }
+        }
+
+        const actualList = tryParseActualList(result);
+        const expectedList = tryParseExpectedList(expectedText);
+        if (actualList && expectedList) {
+            if (actualList.length !== expectedList.length) return false;
+            return actualList.every((item, index) => item === expectedList[index]);
+        }
+
+        if (isNumeric(result) && isNumeric(expectedText)) {
+            return normalizeNumber(result) === normalizeNumber(expectedText);
+        }
+
+        const resultNorm = String(result).trim().toLowerCase();
+        if (resultNorm === expectedNorm) return true;
+
+        // Fallback: ignore whitespace differences in serialized outputs.
+        const compact = (s) => s.replace(/\s+/g, '');
+        return compact(resultNorm) === compact(expectedNorm);
+    };
+
     try {
-        // 1. STATIC ANALYSIS
+        // Run static analysis on the code to find common mistakes
         const analysisJson = await instance.runPythonAsync(`
 import json
 from analyzer_lib import analyze_code
@@ -146,12 +253,13 @@ json.dumps(analyze_code(${JSON.stringify(code)}))
         hints = analysis.hints || [];
         summary = analysis.summary || {};
 
+        // Stop execution if we detected something critical like an infinite loop
         if (analysis.raw_matches?.some(m => m.severity === 'CRITICAL')) {
             self.postMessage({ output: '', error: 'Execution blocked: infinite loop detected.', hints, summary, passed: false });
             return;
         }
 
-        // 2. SETUP CAPTURE & EXECUTE USER CODE
+        // Set up capture for console output and run the user's code
         await instance.runPythonAsync(`
 sys.stdout = StringIO()
 sys.stderr = StringIO()
@@ -170,15 +278,15 @@ sys.stderr = StringIO()
             return;
         }
 
-        // 3. SNAPSHOT USER OUTPUT (This is what they see in the console)
+        // Save what the user printed and any errors that happened
         const finalUserOutput = instance.runPython('sys.stdout.getvalue()');
         const finalUserError = instance.runPython('sys.stderr.getvalue()');
 
-        // 4. BACKGROUND GRADING
+        // Now test the code against the test cases
         if (functionName && testCases) {
             passed = true;
             for (const tc of testCases) {
-                // Reset buffers for clean test evaluation
+                // Reset output capture so each test is clean and independent
                 await instance.runPythonAsync(`
 sys.stdout = StringIO()
 sys.stderr = StringIO()
@@ -187,13 +295,7 @@ sys.stderr = StringIO()
                 try {
                     const result = await instance.runPythonAsync(`${functionName}(${tc.input})`);
 
-                    // Only accept explicit return values — do NOT fall back to stdout.
-                    // This correctly fails functions that print instead of return.
-                    const finalResult = (result !== undefined && result !== null && String(result).trim() !== 'None')
-                        ? String(result).trim()
-                        : '__NO_RETURN__';
-
-                    if (finalResult.toLowerCase() !== tc.output.trim().toLowerCase()) {
+                    if (!valuesMatch(result, tc.output)) {
                         passed = false;
                         break;
                     }
@@ -202,9 +304,17 @@ sys.stderr = StringIO()
                     break;
                 }
             }
+        } else if ((!functionName || String(functionName).trim() === '') && testCases?.length) {
+            // For beginner problems without a function, check if the console output matches
+            const normalizedOutput = String(finalUserOutput ?? '').trim().toLowerCase();
+            // Accept when output matches at least one listed expected output.
+            passed = testCases.some(tc => {
+                const expected = String(tc.output ?? '').trim().toLowerCase();
+                return normalizedOutput === expected;
+            });
         }
 
-        // 5. RESPOND WITH SNAPSHOTTED DATA
+        // Send back the results to the frontend
         self.postMessage({
             output: finalUserOutput,
             error: finalUserError,

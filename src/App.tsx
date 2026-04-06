@@ -1,7 +1,7 @@
 
 import React, { useEffect, useState, useMemo } from 'react';
-import { getProblemDatabase, loadProblems, type Problem } from './utils/problemDatabase';
-import { initialUserProfile, computeOverallMastery } from './utils/userProfile';
+import { getProblemDatabase, loadProblems, filterMasteryToCoveredConcepts, type Problem } from './utils/problemDatabase';
+import { initialUserProfile } from './utils/userProfile';
 import { useAuth } from './hooks/useAuth';
 import { useProgress } from './hooks/userProgress';
 import { useRunCode } from './hooks/useRunCode';
@@ -18,30 +18,67 @@ import AdaptiveBanner from './components/student/layout/AdaptiveBanner';
 import Sidebar from './components/student/layout/Sidebar';
 import MainEditor from './components/student/layout/MainEditor';
 
+const API_BASE = 'http://localhost:4000';
+
 const App: React.FC = () => {
   const [userProfile, setUserProfile] = useState<UserProfile>(initialUserProfile);
   const [view, setView] = useState<'student' | 'admin'>('student');
   const [showSurvey, setShowSurvey] = useState(false);
-  const [finalSUSScore, setFinalSUSScore] = useState<number | null>(null);
+  const [susSubmitted, setSusSubmitted] = useState(false);
   const [quizCompleted, setQuizCompleted] = useState<boolean | null>(null);
   const [currentProblem, setCurrentProblem] = useState<Problem | null>(null);
   const [code, setCode] = useState<string>('');
   const [activeTab, setActiveTab] = useState<'code' | 'visualization' | 'analysis'>('code');
-  const [sessionStartTime, setSessionStartTime] = useState<number>(Date.now());
+  const [sessionStartTime, setSessionStartTime] = useState<number>(() => Date.now());
 
-  // -------------------------------------------------------------------------
-  // Auth
-  // -------------------------------------------------------------------------
+  // Set up authentication and login/logout
+  // This handles checking if the user is logged in and managing the auth state
 
-  const { authUser, setAuthUser, authChecked, handleLogin, handleLogout } = useAuth(
+  const { authUser, authChecked, handleLogin, handleLogout } = useAuth(
     setUserProfile,
     setQuizCompleted,
     setCurrentProblem,
   );
 
-  // -------------------------------------------------------------------------
-  // Progress load/save
-  // -------------------------------------------------------------------------
+  // Load the SUS survey status so we don't annoy users by showing it again
+  // after they've already completed it
+
+  useEffect(() => {
+    if (!authUser || authUser.role !== 'student') return;
+
+    setSusSubmitted(false);
+    setShowSurvey(false);
+
+    const susKey = `skillforge:susSubmitted:${authUser.email}`;
+    const localSubmitted = localStorage.getItem(susKey) === 'true';
+    if (localSubmitted) {
+      setSusSubmitted(true);
+      setShowSurvey(false);
+    }
+
+    const loadSusStatus = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/sus/me`, {
+          headers: { Authorization: `Bearer ${authUser.token}` },
+        });
+        if (!res.ok) return;
+
+        const data = await res.json();
+        if (data?.submitted && typeof data.score === 'number') {
+          setSusSubmitted(true);
+          setShowSurvey(false);
+          localStorage.setItem(susKey, 'true');
+        }
+      } catch (err) {
+        console.error('Failed to load SUS status:', err);
+      }
+    };
+
+    loadSusStatus();
+  }, [authUser]);
+
+  // Automatically save the user's progress (code, profile, solved problems)
+  // and load it back when they log in again
 
   useProgress(
     authUser,
@@ -55,9 +92,7 @@ const App: React.FC = () => {
     loadProblems,
   );
 
-  // -------------------------------------------------------------------------
-  // Run code
-  // -------------------------------------------------------------------------
+  // Handle running user code, checking test cases, and generating hints
 
   const { output, error, hints, running, failureCount, reset, handleRunCode } = useRunCode(
     currentProblem,
@@ -67,9 +102,7 @@ const App: React.FC = () => {
     setUserProfile,
   );
 
-  // -------------------------------------------------------------------------
-  // Feedback
-  // -------------------------------------------------------------------------
+  // Manage feedback ratings and comments that users submit after solving problems
 
   const {
     feedbackRating, setFeedbackRating,
@@ -78,19 +111,17 @@ const App: React.FC = () => {
     handleSubmitFeedback,
   } = useFeedback(authUser, currentProblem);
 
-  // -------------------------------------------------------------------------
-  // SUS Survey trigger
-  // -------------------------------------------------------------------------
+  // Show the SUS survey after they've solved at least 5 problems
+  // (to gather feedback about the teaching experience)
 
   useEffect(() => {
-    if (userProfile.solvedProblemIds.length >= 5 && !finalSUSScore && !showSurvey) {
+    if (userProfile.solvedProblemIds.length >= 5 && !susSubmitted && !showSurvey) {
       setShowSurvey(true);
     }
-  }, [userProfile.solvedProblemIds.length, finalSUSScore, showSurvey]);
+  }, [userProfile.solvedProblemIds.length, susSubmitted, showSurvey]);
 
-  // -------------------------------------------------------------------------
-  // Reset state when switching problems
-  // -------------------------------------------------------------------------
+  // When the user picks a new problem, load their saved code for it
+  // and reset the output/errors/hints so everything is fresh
 
   useEffect(() => {
     if (!currentProblem) return;
@@ -101,9 +132,8 @@ const App: React.FC = () => {
     setActiveTab('code');
   }, [currentProblem?.id]);
 
-  // -------------------------------------------------------------------------
-  // Derived metrics
-  // -------------------------------------------------------------------------
+  // Calculate progress stats: problems solved, success rate, and which problems
+  // to recommend next based on the user's skill level
 
   const solvedCount = userProfile.solvedProblemIds?.length ?? 0;
   const totalProblems = getProblemDatabase().length;
@@ -130,44 +160,52 @@ const App: React.FC = () => {
     });
   }, [userProfile.conceptMastery]);
 
-  const weakestConcept = useMemo(() => {
-    const entries = Object.entries(userProfile.conceptMastery);
-    if (entries.length === 0) return null;
-    entries.sort((a, b) => a[1] - b[1]);
-    const [concept] = entries[0];
-    return concept;
-  }, [userProfile.conceptMastery]);
+  const visibleConceptMastery = filterMasteryToCoveredConcepts(userProfile.conceptMastery);
 
-
-  // -------------------------------------------------------------------------
-  // Navigation
-  // -------------------------------------------------------------------------
+  // Helper functions to pick the next problem to show the user
+  // Smart recommendations based on what they're weak at
 
   const recommendNextProblem = () => {
     if (!currentProblem) return;
+    const solvedIds = new Set(userProfile.solvedProblemIds);
     const idx = recommendedProblems.findIndex(p => p.id === currentProblem.id);
-    if (idx === -1 || idx >= recommendedProblems.length - 1) {
-      const firstUnsolved = recommendedProblems.find(
-        p => !userProfile.solvedProblemIds.includes(p.id)
-      );
-      if (firstUnsolved) setCurrentProblem(firstUnsolved);
-      return;
+
+    // Prefer the next unsolved item after the current one in adaptive order.
+    if (idx !== -1) {
+      const nextUnsolved = recommendedProblems
+        .slice(idx + 1)
+        .find(p => !solvedIds.has(p.id));
+      if (nextUnsolved) {
+        setCurrentProblem(nextUnsolved);
+        return;
+      }
     }
-    setCurrentProblem(recommendedProblems[idx + 1]);
+
+    // Fallback: pick the first unsolved anywhere in the adaptive list.
+    const firstUnsolved = recommendedProblems.find(p => !solvedIds.has(p.id));
+    if (firstUnsolved) setCurrentProblem(firstUnsolved);
   };
 
-  // -------------------------------------------------------------------------
-  // Early returns
-  // -------------------------------------------------------------------------
+  const chooseInitialProblem = (problems: Problem[], conceptPriors: Record<string, number>) => {
+    const ranked = [...problems].sort((a, b) => {
+      const scoreA = a.concepts.reduce((sum, concept) => sum + (conceptPriors[concept] ?? 0.5), 0) / a.concepts.length;
+      const scoreB = b.concepts.reduce((sum, concept) => sum + (conceptPriors[concept] ?? 0.5), 0) / b.concepts.length;
+      return scoreA - scoreB;
+    });
+
+    const filtered = ranked.filter(problem => !/hello world/i.test(problem.title));
+    return filtered[0] ?? ranked[0] ?? null;
+  };
+
+  // Show loading screens or login/quiz pages depending on what state we're in
 
   if (!authChecked) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-gray-500 font-mono text-sm animate-pulse">Initializing SkillForge…</div>
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="text-slate-500 font-mono text-sm animate-pulse">Initializing SkillForge...</div>
       </div>
     );
   }
-// 1) While we are still checking if the user is logged in
 
   if (!authUser) {
     return (
@@ -178,7 +216,6 @@ const App: React.FC = () => {
       />
     );
   }
-// 3) Logged in but has not done placement quiz yet
 
   if (quizCompleted === false) {
     return (
@@ -193,21 +230,12 @@ const App: React.FC = () => {
           setQuizCompleted(true);
 
           const allProblems = getProblemDatabase();
-          const firstAdaptiveProblem = [...allProblems].sort((a, b) => {
-            const scoreA =
-              a.concepts.reduce((sum, c) => sum + (result.conceptPriors[c] ?? 0.5), 0) /
-              a.concepts.length;
-            const scoreB =
-              b.concepts.reduce((sum, c) => sum + (result.conceptPriors[c] ?? 0.5), 0) /
-              b.concepts.length;
-            return scoreA - scoreB;
-          })[0];
+          const firstAdaptiveProblem = chooseInitialProblem(allProblems, result.conceptPriors);
 
           if (firstAdaptiveProblem) setCurrentProblem(firstAdaptiveProblem);
-// 2) Not logged in: show Login
 
           if (authUser) {
-            fetch('http://localhost:4000/progress', {
+            fetch(`${API_BASE}/progress`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -224,33 +252,33 @@ const App: React.FC = () => {
       />
     );
   }
-// 4) Waiting for currentProblem (after loading progress)
 
   if (!currentProblem) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-gray-500 font-mono text-sm animate-pulse">Loading problems…</div>
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="text-slate-500 font-mono text-sm animate-pulse">Loading problems...</div>
       </div>
     );
   }
 
   const isSolved = userProfile.solvedProblemIds.includes(currentProblem.id);
 
-  // -------------------------------------------------------------------------
-  // Render
-  // -------------------------------------------------------------------------
+  // Build and return the main UI
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-slate-50">
       {showSurvey && (
         <SUSSurvey
           onComplete={(score, responses) => {
-            setFinalSUSScore(score);
+            if (authUser?.email) {
+              localStorage.setItem(`skillforge:susSubmitted:${authUser.email}`, 'true');
+            }
+            setSusSubmitted(true);
             setShowSurvey(false);
 
             // Persist to backend so admin can see SUS results
             if (authUser) {
-              fetch('http://localhost:4000/sus', {
+              fetch(`${API_BASE}/sus`, {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
@@ -268,9 +296,9 @@ const App: React.FC = () => {
           <AdminDashboard token={authUser.token} />
           <button
             onClick={() => setView('student')}
-            className="fixed bottom-6 right-6 bg-indigo-600 text-white px-4 py-2 rounded-full font-bold shadow-lg z-50"
+            className="fixed bottom-6 right-6 z-50 rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm"
           >
-            ← Back to Student View
+            Back to Student View
           </button>
         </>
       ) : (
@@ -282,12 +310,19 @@ const App: React.FC = () => {
             totalProblems={totalProblems}
             progressPercent={progressPercent}
             successRate={successRate}
-            onLogout={() => handleLogout(() => setUserProfile(initialUserProfile))}
+            onLogout={() => handleLogout(() => {
+              setUserProfile(initialUserProfile);
+              setQuizCompleted(null);
+              setCurrentProblem(null);
+              setCode('');
+              setShowSurvey(false);
+              setSusSubmitted(false);
+              setView('student');
+            })}
             onAdminClick={() => setView('admin')}
           />
 
           <AdaptiveBanner
-            weakestConcept={weakestConcept}
             conceptMastery={userProfile.conceptMastery}
             trajectoryLength={userProfile.learningTrajectory.length}
           />
@@ -297,6 +332,7 @@ const App: React.FC = () => {
               recommendedProblems={recommendedProblems}
               currentProblem={currentProblem}
               userProfile={userProfile}
+              visibleConceptMastery={visibleConceptMastery}
               onSelectProblem={setCurrentProblem}
               onNextProblem={recommendNextProblem}
             />

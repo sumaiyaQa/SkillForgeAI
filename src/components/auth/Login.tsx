@@ -1,24 +1,31 @@
 import { useState } from "react";
-import { Code2, ShieldCheck, UserIcon } from "lucide-react";
 import PlacementQuiz from "../student/PlacementQuiz";
 
-// TYPES
-
+type SkillLevel = "beginner" | "intermediate" | "advanced";
 
 interface AuthPayload {
   email: string;
   token: string;
   role: "student" | "admin";
-  quizResult?: { level: string; conceptPriors: Record<string, number> };
-
+  quizResult?: { level: SkillLevel; conceptPriors: Record<string, number> };
 }
 
 interface Props {
   onLogin: (auth: AuthPayload) => void;
 }
 
-// LOGIN COMPONENT
+interface TempCredentials {
+  email: string;
+  password: string;
+  role: "student";
+}
 
+const API_BASE = "http://localhost:4000";
+
+function getErrorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return "Something went wrong. Please try again.";
+}
 
 export default function Login({ onLogin }: Props) {
   const [email, setEmail] = useState("");
@@ -29,12 +36,12 @@ export default function Login({ onLogin }: Props) {
 
   const [isRegistering, setIsRegistering] = useState(false);
   const [showQuiz, setShowQuiz] = useState(false);
-  const [tempCredentials, setTempCredentials] = useState<any>(null);
+  const [tempCredentials, setTempCredentials] = useState<TempCredentials | null>(null);
 
   const handleSubmit = async () => {
     setError("");
 
-    // REGISTRATION LOGIC
+    // Registration path: students continue to quiz, admins register directly.
     if (isRegistering) {
       if (!email || !password) {
         setError("Please enter both email and password.");
@@ -46,19 +53,16 @@ export default function Login({ onLogin }: Props) {
           setError("Admin key is required for instructor registration.");
           return;
         }
-        // Direct Registration for Admins (Skip Quiz)
-        await handleFinalRegistration({ level: "expert", conceptPriors: {} });
+        await handleFinalRegistration({ level: "beginner", conceptPriors: {} });
       } else {
-        // Students go to Quiz
         setTempCredentials({ email, password, role: "student" });
         setShowQuiz(true);
       }
       return;
     }
 
-    // LOGIN LOGIC
     try {
-      const res = await fetch("http://localhost:4000/auth/login", {
+      const res = await fetch(`${API_BASE}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
@@ -73,20 +77,25 @@ export default function Login({ onLogin }: Props) {
         email: email
       };
 
-      localStorage.setItem("skillforge:auth", JSON.stringify(auth));
       onLogin(auth);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(getErrorMessage(err));
     }
   };
 
-  const handleFinalRegistration = async (result: { level: string; conceptPriors: Record<string, number> }) => {
+  const handleFinalRegistration = async (result: { level: SkillLevel; conceptPriors: Record<string, number> }) => {
     const creds = isRegistering && role === "admin"
       ? { email, password, role, adminKey }
       : { ...tempCredentials, skillLevel: result.level };
 
+    if (!creds || !creds.email || !creds.password) {
+      setError("Missing registration details. Please try again.");
+      setShowQuiz(false);
+      return;
+    }
+
     try {
-      const registerRes = await fetch("http://localhost:4000/auth/register", {
+      const registerRes = await fetch(`${API_BASE}/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(creds),
@@ -95,95 +104,110 @@ export default function Login({ onLogin }: Props) {
       const registerData = await registerRes.json();
       if (!registerRes.ok) throw new Error(registerData.message);
 
-      // Auto-login
-      const loginRes = await fetch("http://localhost:4000/auth/login", {
+      const loginRes = await fetch(`${API_BASE}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: creds.email, password: creds.password }),
       });
 
       const loginData = await loginRes.json();
+      if (!loginRes.ok) throw new Error(loginData.message || "Login after registration failed");
+
       const auth = { token: loginData.token, role: loginData.role, email: creds.email, quizResult: result };
-      localStorage.setItem("skillforge:auth", JSON.stringify(auth));
       onLogin(auth);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(getErrorMessage(err));
       setShowQuiz(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
       {showQuiz ? (
         <PlacementQuiz onComplete={handleFinalRegistration} />
       ) : (
-        <div className="bg-white rounded-xl shadow-lg border p-8 w-full max-w-md">
-          <div className="flex items-center justify-center gap-3 mb-6">
-            <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-2 rounded-lg">
-              <Code2 className="text-white" size={24} />
-            </div>
-            <h1 className="text-2xl font-bold text-gray-900">SkillForge AI</h1>
+        <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
+          <div className="mb-6 text-center">
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-900">SkillForge AI</h1>
+            <p className="mt-1 text-sm text-slate-500">
+              {isRegistering ? "Create your account" : "Sign in to continue"}
+            </p>
           </div>
 
-          {/* Role Switcher (Registration Only) */}
           {isRegistering && (
-            <div className="flex bg-gray-100 p-1 rounded-lg mb-6">
+            <div className="mb-6 flex rounded-md border border-slate-200 bg-slate-50 p-1">
               <button
                 onClick={() => setRole("student")}
-                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-md text-sm font-medium transition ${role === "student" ? "bg-white shadow text-indigo-600" : "text-gray-500"}`}
+                className={`flex-1 rounded px-3 py-2 text-sm font-medium transition ${role === "student" ? "bg-white text-indigo-700 shadow-sm" : "text-slate-600"}`}
               >
-                <UserIcon size={16} /> Student
+                Student
               </button>
               <button
                 onClick={() => setRole("admin")}
-                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-md text-sm font-medium transition ${role === "admin" ? "bg-white shadow text-indigo-600" : "text-gray-500"}`}
+                className={`flex-1 rounded px-3 py-2 text-sm font-medium transition ${role === "admin" ? "bg-white text-indigo-700 shadow-sm" : "text-slate-600"}`}
               >
-                <ShieldCheck size={16} /> Instructor
+                Instructor
               </button>
             </div>
           )}
 
           <div className="space-y-4">
+            {/* Keep labels visible for accessibility and cleaner form structure. */}
+            <label htmlFor="login-email" className="block text-xs font-medium text-slate-600">
+              Email
+            </label>
             <input
+              id="login-email"
               type="email"
               value={email}
               onChange={e => setEmail(e.target.value)}
-              placeholder="Email"
-              className="w-full px-4 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
+              placeholder="you@example.com"
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
             />
+
+            <label htmlFor="login-password" className="block text-xs font-medium text-slate-600">
+              Password
+            </label>
             <input
+              id="login-password"
               type="password"
               value={password}
               onChange={e => setPassword(e.target.value)}
               placeholder="Password"
-              className="w-full px-4 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
             />
 
             {isRegistering && role === "admin" && (
-              <input
-                type="password"
-                value={adminKey}
-                onChange={e => setAdminKey(e.target.value)}
-                placeholder="Admin Secret Key"
-                className="w-full px-4 py-2 border-2 border-indigo-100 bg-indigo-50 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
-              />
+              <>
+                <label htmlFor="admin-secret-key" className="block text-xs font-medium text-slate-600">
+                  Admin Secret Key
+                </label>
+                <input
+                  id="admin-secret-key"
+                  type="password"
+                  value={adminKey}
+                  onChange={e => setAdminKey(e.target.value)}
+                  placeholder="Enter admin key"
+                  className="w-full rounded-md border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                />
+              </>
             )}
 
             <button
               onClick={handleSubmit}
-              className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white py-2 rounded-lg font-medium"
+              className="w-full rounded-md bg-indigo-600 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
             >
               {isRegistering ? (role === "admin" ? "Register Admin" : "Continue to Quiz") : "Login"}
             </button>
 
             <button
               onClick={() => { setIsRegistering(!isRegistering); setError(""); }}
-              className="w-full text-sm text-indigo-600 font-medium"
+              className="w-full text-sm font-medium text-slate-600 hover:text-slate-900"
             >
               {isRegistering ? "Already have an account? Login" : "Don't have an account? Register"}
             </button>
           </div>
-          {error && <p className="mt-4 text-sm text-center text-red-600 font-medium">{error}</p>}
+          {error && <p className="mt-4 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>}
         </div>
       )}
     </div>

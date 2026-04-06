@@ -7,7 +7,7 @@ type Props = {
 
 export default function CodeEditor({ code, onChange }: Props) {
   return (
-    <div className="rounded-lg border border-gray-300 overflow-hidden">
+    <div className="overflow-hidden rounded-lg border border-slate-300 bg-white">
       <Editor
         height="400px"
         language="python"

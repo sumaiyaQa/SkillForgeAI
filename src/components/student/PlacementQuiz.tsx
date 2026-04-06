@@ -1,44 +1,30 @@
 /**
- * PlacementQuiz.tsx
+ * PlacementQuiz.tsx  Diagnostic test shown to new students on first login
  *
- * PURPOSE:
- * This component runs an 8-question Python diagnostic quiz shown to new
- * students immediately after their first login. It does two things:
+ * This 8-question Python quiz does two important things:
  *
- *   1. Derives a coarse skill level label (beginner / intermediate / advanced)
- *      for backward compatibility with the skill_level database column.
+ * 1. It gives students a starting skill level (beginner, intermediate, or advanced)
+ *    that is stored in the database for compatibility.
  *
- *   2. More importantly — seeds PER-CONCEPT BKT priors from the quiz answers.
- *      Instead of every concept starting at the default 0.3 prior, the student
- *      begins with meaningful, differentiated knowledge estimates.
+ * 2. More importantly, it seeds knowledge estimates for each concept based on
+ *    their answers. Instead of everyone starting at the same prior (0.3), a
+ *    student who gets the recursion question right starts at 0.75 for recursion,
+ *    while one who gets it wrong starts at 0.15. That affects:
+ *    - Which problems show up first, with weaker concepts prioritized
+ *    - Which hints they get, based on their Zone of Proximal Development
  *
- * WHY THIS MATTERS (academic justification):
- * Bayesian Knowledge Tracing assumes a prior P(L0) for each concept. Using
- * the same prior for all students ignores pre-existing knowledge. By running
- * updateMastery() from bkt.ts on each quiz response, we perform a single
- * BKT update step before any practice begins. A student who answers the
- * recursion question correctly starts with recursion mastery ~0.75; one who
- * gets it wrong starts at ~0.15. This directly feeds:
- *   - recommendedProblems ordering in App.tsx (weakest concepts first)
- *   - selectAdaptiveHint() ZPD level selection in Hint.ts
+ * This follows the learning science ideas behind Bayesian Knowledge Tracing,
+ * based on Corbett & Anderson (1995).
  *
- * FLOW:
- *   Login → (new student, no saved profile) → PlacementQuiz → App
- *   Login → (returning student, saved profile) → App (quiz skipped)
- *
- * Reference: Corbett & Anderson (1995). Knowledge tracing: Modeling the
- * acquisition of procedural knowledge. UMUAI 4(4), 253–278.
+ * Flow:
+ *   New student logs in -> takes quiz -> gets personalized recommendations
+ *   Returning student logs in -> skips quiz -> uses saved progress
  */
 
-import React, { useState } from 'react';
-import { CheckCircle, XCircle, Brain } from 'lucide-react';
+import { useState } from 'react';
 import { updateMastery } from '../../models/bkt';
-// ^ Path assumes this file lives at src/components/student/PlacementQuiz.tsx
-// If your folder structure differs, adjust to match where bkt.ts actually is.
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+// Quiz question shape
 
 interface Question {
   id: number;
@@ -49,24 +35,15 @@ interface Question {
   concept: string;
 }
 
-/**
- * PlacementResult — the object passed to onComplete().
- *
- * `level` is the coarse label stored in the DB.
- * `conceptPriors` is the important part — a Record<concept, mastery> that
- * App.tsx writes directly into userProfile.conceptMastery, seeding BKT.
- */
+// What the quiz returns when it finishes
+// level is stored in the database, and conceptPriors seeds their learning path
 export interface PlacementResult {
   level: 'beginner' | 'intermediate' | 'advanced';
   conceptPriors: Record<string, number>;
 }
 
-// ---------------------------------------------------------------------------
-// Question bank
-// 8 questions, easy → hard, covering 8 distinct Python concepts.
-// Each concept maps to concept tags used in the problem database,
-// so the priors derived here directly influence problem ordering.
-// ---------------------------------------------------------------------------
+// Eight Python questions, arranged from easy to hard
+// Each question maps to concepts used in the problem database so the results can guide problem selection
 
 const placementQuestions: Question[] = [
   {
@@ -145,18 +122,10 @@ const placementQuestions: Question[] = [
   },
 ];
 
-// ---------------------------------------------------------------------------
-// BKT Prior Derivation
-// ---------------------------------------------------------------------------
+// Build starting knowledge estimates from the quiz
 
-/**
- * CONCEPT MAPPING — quiz concept → DB problem concept tags
- *
- * The quiz uses broad concept names ('types', 'loops') while the problem
- * database uses fine-grained tags ('strings', 'print', 'for-loops').
- * This map ensures quiz priors seed BKT for the right problem concepts
- * so the adaptive ordering and hint system actually uses them.
- */
+// Map quiz concepts to the problem tags used in the database
+// For example, if someone knows recursion, they should be matched with recursion-related tags too
 const QUIZ_TO_DB_CONCEPTS: Record<string, string[]> = {
   types:        ['types', 'strings', 'integers', 'floats', 'booleans'],
   functions:    ['functions', 'return-values', 'parameters'],
@@ -168,24 +137,8 @@ const QUIZ_TO_DB_CONCEPTS: Record<string, string[]> = {
   memoisation:  ['memoisation', 'memoization', 'dynamic-programming', 'caching'],
 };
 
-/**
- * deriveConceptPriors()
- *
- * Converts quiz responses into per-concept BKT starting values.
- *
- * HOW IT WORKS:
- * For each question answered, we run one BKT update step (updateMastery from
- * bkt.ts) starting from the default neutral prior of 0.3. This gives us a
- * posterior belief about whether the student knows that concept.
- *
- * We then apply a difficulty weight: harder questions carry more diagnostic
- * signal. Getting a hard question right is stronger evidence of knowledge
- * than getting an easy one right. We scale the deviation from 0.5 by this
- * weight to amplify the signal appropriately.
- *
- * Result: { loops: 0.15, recursion: 0.75, functions: 0.75, ... }
- * These values go straight into userProfile.conceptMastery in App.tsx.
- */
+// Turn quiz answers into knowledge estimates for each concept
+// A correct answer raises mastery, a wrong answer lowers it, and harder questions count a bit more
 function deriveConceptPriors(
   responses: Array<{ concept: string; correct: boolean; difficulty: 'easy' | 'medium' | 'hard' }>
 ): Record<string, number> {
@@ -194,18 +147,17 @@ function deriveConceptPriors(
   for (const { concept, correct, difficulty } of responses) {
     const neutralPrior = 0.3;
 
-    const difficultyWeight =
-      difficulty === 'hard' ? 1.3 :
-      difficulty === 'medium' ? 1.1 : 1.0;
+    const responseWeight =
+      difficulty === 'hard' ? 0.85 :
+      difficulty === 'medium' ? 0.7 : 0.6;
 
     let updated = updateMastery(neutralPrior, correct);
 
-    const deviation = (updated - 0.5) * difficultyWeight;
-    updated = Math.min(1, Math.max(0, 0.5 + deviation));
+    // Keep the placement priors useful without making them too extreme after one answer.
+    updated = Math.min(1, Math.max(0, 0.5 + (updated - 0.5) * responseWeight));
 
-    // Write the prior for the quiz concept AND all its DB tag aliases.
-    // This ensures recommendedProblems ordering in App.tsx sees the values
-    // no matter which tag the problem uses.
+    // Write the value for the quiz concept and all of its database tag aliases.
+    // That way, problem ordering can use it no matter which tag a problem has.
     const dbConcepts = QUIZ_TO_DB_CONCEPTS[concept] ?? [concept];
     for (const tag of dbConcepts) {
       priors[tag] = updated;
@@ -215,13 +167,8 @@ function deriveConceptPriors(
   return priors;
 }
 
-/**
- * deriveSkillLevel()
- *
- * Maps raw score percentage to the coarse skill label.
- * Stored in the DB for compatibility — but the real adaptation
- * uses conceptPriors, not this label.
- */
+// Convert the score into a skill label (beginner, intermediate, or advanced)
+// This is saved for compatibility with the database
 function deriveSkillLevel(
   score: number,
   total: number
@@ -232,9 +179,7 @@ function deriveSkillLevel(
   return 'beginner';
 }
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
+// The quiz component
 
 export default function PlacementQuiz({
   onComplete,
@@ -249,8 +194,7 @@ export default function PlacementQuiz({
     Array<{ concept: string; correct: boolean; difficulty: 'easy' | 'medium' | 'hard' }>
   >([]);
 
-  // Once the last question is answered, we show a results screen before
-  // calling onComplete(). quizResult holds the derived data for that screen.
+  // After all eight questions are done, show a results summary before learning starts
   const [quizResult, setQuizResult] = useState<PlacementResult | null>(null);
 
   const question = placementQuestions[currentStep];
@@ -278,7 +222,7 @@ export default function PlacementQuiz({
     if (isLastQuestion) {
       const conceptPriors = deriveConceptPriors(newResponses);
       const level = deriveSkillLevel(newScore, placementQuestions.length);
-      // Show results screen instead of immediately calling onComplete
+      // Show the results screen so they can see their knowledge estimates before starting
       setQuizResult({ level, conceptPriors });
     } else {
       setScore(newScore);
@@ -289,50 +233,43 @@ export default function PlacementQuiz({
     }
   };
 
-  // ---- Results Screen ----
-  if (quizResult) {
-    const totalQuestions = placementQuestions.length;
-    const correctCount = Object.values(quizResult.conceptPriors).filter(v => v > 0.5).length;
+    // Show the results and let them start learning
+    if (quizResult) {
     const levelColors = {
       beginner: 'text-amber-600 bg-amber-50 border-amber-200',
       intermediate: 'text-blue-600 bg-blue-50 border-blue-200',
       advanced: 'text-emerald-600 bg-emerald-50 border-emerald-200',
     };
-    const levelEmoji = { beginner: '🌱', intermediate: '⚡', advanced: '🚀' };
 
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-8 w-full max-w-xl">
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+        <div className="w-full max-w-xl rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
           <div className="text-center mb-6">
-            <div className="text-4xl mb-3">{levelEmoji[quizResult.level]}</div>
-            <h2 className="text-2xl font-black text-gray-900 mb-1">Assessment Complete</h2>
-            <p className="text-sm text-gray-500">Here's what we learned about your Python knowledge</p>
+            <h2 className="mb-1 text-2xl font-semibold text-slate-900">Assessment Complete</h2>
+            <p className="text-sm text-slate-500">Here is your current Python baseline.</p>
           </div>
 
-          {/* Level badge */}
-          <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full border font-bold text-sm mb-6 mx-auto flex justify-center ${levelColors[quizResult.level]}`}>
+          <div className={`mb-6 inline-flex justify-center rounded-full border px-4 py-2 text-sm font-semibold ${levelColors[quizResult.level]}`}>
             Placed as: <span className="capitalize">{quizResult.level}</span>
           </div>
 
-          {/* Per-concept breakdown */}
           <div className="space-y-2 mb-6">
-            <p className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">Concept Mastery Estimates</p>
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Concept Mastery Estimates</p>
             {placementQuestions.map(q => {
-              // Get the primary DB tag mastery value
               const primaryTag = QUIZ_TO_DB_CONCEPTS[q.concept]?.[0] ?? q.concept;
               const mastery = quizResult.conceptPriors[primaryTag] ?? 0.3;
               const pct = Math.round(mastery * 100);
               const isStrong = mastery > 0.5;
               return (
                 <div key={q.concept} className="flex items-center gap-3">
-                  <span className="text-xs font-semibold text-gray-600 w-24 capitalize">{q.concept}</span>
-                  <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                  <span className="w-24 text-xs font-semibold capitalize text-slate-600">{q.concept}</span>
+                  <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
                     <div
                       className={`h-full rounded-full transition-all ${isStrong ? 'bg-emerald-400' : 'bg-red-300'}`}
                       style={{ width: `${pct}%` }}
                     />
                   </div>
-                  <span className={`text-xs font-bold w-10 text-right ${isStrong ? 'text-emerald-600' : 'text-red-500'}`}>
+                  <span className={`w-10 text-right text-xs font-semibold ${isStrong ? 'text-emerald-700' : 'text-rose-700'}`}>
                     {pct}%
                   </span>
                 </div>
@@ -340,48 +277,42 @@ export default function PlacementQuiz({
             })}
           </div>
 
-          <p className="text-xs text-gray-400 text-center mb-6">
+          <p className="mb-6 text-center text-xs text-slate-500">
             Problems will be ordered by your weakest concepts first.
           </p>
 
           <button
             onClick={() => onComplete(quizResult)}
-            className="w-full py-3 rounded-xl bg-indigo-600 text-white font-bold text-sm hover:bg-indigo-700 transition-colors"
+            className="w-full rounded-xl bg-indigo-600 py-3 text-sm font-semibold text-white hover:bg-indigo-700 transition-colors"
           >
-            Start Learning →
+            Start Learning
           </button>
         </div>
       </div>
     );
   }
 
-  // Progress bar fill: grows as student advances through questions
   const progressPercent = (currentStep / placementQuestions.length) * 100;
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-8 w-full max-w-xl">
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+      <div className="w-full max-w-xl rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
 
-        {/* Header */}
         <div className="mb-6">
-          <div className="flex items-center gap-2 mb-1">
-            <Brain size={20} className="text-indigo-600" />
-            <h2 className="text-xl font-black text-gray-900">Skill Assessment</h2>
-          </div>
-          <p className="text-sm text-gray-500">
+          <h2 className="mb-1 text-xl font-semibold text-slate-900">Skill Assessment</h2>
+          <p className="text-sm text-slate-500">
             Your answers seed personalised knowledge estimates for each concept.
           </p>
         </div>
 
-        {/* Progress bar */}
         <div className="mb-6">
-          <div className="flex justify-between text-xs text-gray-400 mb-1">
+          <div className="mb-1 flex justify-between text-xs text-slate-500">
             <span>Question {currentStep + 1} of {placementQuestions.length}</span>
-            <span className="capitalize font-semibold text-indigo-500">
+            <span className="capitalize font-semibold text-indigo-700">
               {question.difficulty}
             </span>
           </div>
-          <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+          <div className="h-2 overflow-hidden rounded-full bg-slate-100">
             <div
               className="h-full bg-indigo-500 transition-all duration-500"
               style={{ width: `${progressPercent}%` }}
@@ -389,48 +320,38 @@ export default function PlacementQuiz({
           </div>
         </div>
 
-        {/* Question text — whitespace-pre-wrap preserves code indentation */}
         <div className="mb-6">
-          <p className="font-semibold text-gray-800 whitespace-pre-wrap text-sm leading-relaxed">
+          <p className="whitespace-pre-wrap text-sm font-semibold leading-relaxed text-slate-800">
             {question.text}
           </p>
-          <span className="inline-block mt-2 text-[10px] uppercase tracking-wider font-bold text-indigo-400 bg-indigo-50 px-2 py-0.5 rounded-full">
+          <span className="mt-2 inline-block rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-700">
             {question.concept}
           </span>
         </div>
 
-        {/* Answer options */}
         <div className="space-y-3 mb-6">
           {question.options.map((opt, i) => {
-            // Build the button's className based on state
             let base = 'w-full text-left px-4 py-3 rounded-lg border text-sm transition-all';
 
             if (!confirmed) {
-              // Before confirming: highlight selected option in indigo
               base += selectedAnswer === i
                 ? ' border-indigo-500 bg-indigo-50 font-semibold text-indigo-800'
-                : ' border-gray-200 hover:border-indigo-300 hover:bg-gray-50 text-gray-700';
+                : ' border-slate-200 hover:border-indigo-300 hover:bg-slate-50 text-slate-700';
             } else {
-              // After confirming: show green for correct, red for wrong selection
               if (i === question.correct) {
                 base += ' border-emerald-500 bg-emerald-50 text-emerald-800 font-semibold';
               } else if (i === selectedAnswer) {
-                base += ' border-red-400 bg-red-50 text-red-700';
+                base += ' border-rose-400 bg-rose-50 text-rose-700';
               } else {
-                base += ' border-gray-200 text-gray-400';
+                base += ' border-slate-200 text-slate-400';
               }
             }
 
             return (
               <button key={i} className={base} onClick={() => handleSelect(i)}>
                 <div className="flex items-center gap-3">
-                  {/* Show tick/cross icons after confirming */}
-                  {confirmed && i === question.correct && (
-                    <CheckCircle size={16} className="text-emerald-600 shrink-0" />
-                  )}
-                  {confirmed && i === selectedAnswer && i !== question.correct && (
-                    <XCircle size={16} className="text-red-500 shrink-0" />
-                  )}
+                  {confirmed && i === question.correct && <span className="text-[10px] font-semibold uppercase text-emerald-700">Correct</span>}
+                  {confirmed && i === selectedAnswer && i !== question.correct && <span className="text-[10px] font-semibold uppercase text-rose-700">Selected</span>}
                   <span>{opt}</span>
                 </div>
               </button>
@@ -438,21 +359,20 @@ export default function PlacementQuiz({
           })}
         </div>
 
-        {/* Action button — two-step: Confirm then Next */}
         {!confirmed ? (
           <button
             onClick={handleConfirm}
             disabled={selectedAnswer === null}
-            className="w-full py-3 rounded-xl bg-indigo-600 text-white font-bold text-sm hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            className="w-full rounded-xl bg-indigo-600 py-3 text-sm font-semibold text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
           >
             Confirm Answer
           </button>
         ) : (
           <button
             onClick={handleNext}
-            className="w-full py-3 rounded-xl bg-gray-900 text-white font-bold text-sm hover:bg-gray-700 transition-colors"
+            className="w-full rounded-xl bg-slate-900 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-700"
           >
-            {isLastQuestion ? 'View My Results →' : 'Next Question →'}
+            {isLastQuestion ? 'View My Results' : 'Next Question'}
           </button>
         )}
       </div>

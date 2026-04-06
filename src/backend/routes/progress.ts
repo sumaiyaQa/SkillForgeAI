@@ -4,9 +4,7 @@ import { authenticateToken, type AuthRequest } from "../middleware/auth.js";
 
 const router = express.Router();
 
-/* ================================================================
-   SAVE USER PROGRESS
-================================================================ */
+/* Save user progress */
 
 router.post("/", authenticateToken, async (req: AuthRequest, res) => {
   const userId = req.userId;
@@ -22,6 +20,7 @@ router.post("/", authenticateToken, async (req: AuthRequest, res) => {
   }
 
   try {
+    // Save the profile in user_progress
     await pool.query(
       `
       INSERT INTO user_progress (user_id, profile, last_problem_id, last_code)
@@ -36,6 +35,14 @@ router.post("/", authenticateToken, async (req: AuthRequest, res) => {
       [userId, JSON.stringify(profile), lastProblemId, lastCode]
     );
 
+    // Keep the skill level in the users table in sync too
+    if (profile.skillLevel) {
+      await pool.query(
+        "UPDATE users SET skill_level = $1 WHERE id = $2",
+        [profile.skillLevel, userId]
+      );
+    }
+
     res.json({ message: "Progress saved successfully" });
   } catch (err) {
     console.error("SAVE PROGRESS ERROR:", err);
@@ -43,9 +50,7 @@ router.post("/", authenticateToken, async (req: AuthRequest, res) => {
   }
 });
 
-/* ================================================================
-   LOAD USER PROGRESS
-================================================================ */
+/* Load user progress */
 
 router.get("/", authenticateToken, async (req: AuthRequest, res) => {
   const userId = req.userId;
@@ -119,9 +124,7 @@ router.get("/", authenticateToken, async (req: AuthRequest, res) => {
   }
 });
 
-/* ================================================================
-   ADMIN SUMMARY
-================================================================ */
+/* Admin summary */
 
 router.get("/summary", authenticateToken, async (req: AuthRequest, res) => {
   if (req.role !== "admin") {
@@ -187,7 +190,7 @@ router.get("/summary", authenticateToken, async (req: AuthRequest, res) => {
     const conceptAvg: Record<string, number> = {};
     for (const concept in conceptHeatmap) {
       const values = conceptHeatmap[concept];
-      if (!values || values.length === 0) continue;  // 👈 ADD THIS
+      if (!values || values.length === 0) continue;
 
       conceptAvg[concept] = values.reduce((a, b) => a + b, 0) / values.length;
     }

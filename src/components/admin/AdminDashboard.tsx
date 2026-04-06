@@ -3,15 +3,8 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, LineChart, Line, CartesianGrid, Legend,
 } from 'recharts';
-import {
-  Users, BarChart3, Award, MessageSquare, TrendingUp,
-  AlertCircle, Trash2, RefreshCw, BookOpen, Plus, Pencil,
-  Save, X, Shield,
-} from 'lucide-react';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Types
-// ─────────────────────────────────────────────────────────────────────────────
+// Types used by the admin dashboard
 
 interface SkillDistributionItem {
   level: 'beginner' | 'intermediate' | 'advanced';
@@ -36,6 +29,26 @@ interface AdminFeedback {
   created_at: string;
 }
 
+interface SUSScoreRow {
+  id: number;
+  email: string;
+  score: number;
+  responses: number[];
+  created_at: string;
+}
+
+interface SUSStats {
+  total_responses: number;
+  avg_score: number | null;
+  min_score: number | null;
+  max_score: number | null;
+}
+
+interface SUSPayload {
+  scores: SUSScoreRow[];
+  stats: SUSStats;
+}
+
 interface StudentUser {
   id: number;
   email: string;
@@ -55,6 +68,7 @@ interface Problem {
   difficulty: 'easy' | 'medium' | 'hard';
   description: string;
   starter_code: string;
+  hints: Array<{ id: string; level: string; content: string; scaffolding: number; concept: string }>;
   concepts: string[];
   function_name: string | null;
   example_cases: Array<{ input: string; output: string }>;
@@ -62,11 +76,9 @@ interface Problem {
 }
 
 type ProblemDraft = Omit<Problem, 'id' | 'updated_at'>;
-type TabKey = 'overview' | 'concepts' | 'errors' | 'users' | 'problems' | 'feedback';
+type TabKey = 'overview' | 'concepts' | 'errors' | 'users' | 'problems' | 'feedback' | 'sus';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Constants
-// ─────────────────────────────────────────────────────────────────────────────
+// Shared values used across the dashboard
 
 const COLORS = ['#4f46e5', '#8b5cf6', '#ec4899', '#10b981', '#f59e0b'];
 
@@ -75,21 +87,24 @@ const BLANK_DRAFT: ProblemDraft = {
   difficulty: 'easy',
   description: '',
   starter_code: '',
+  hints: [],
   concepts: [],
   function_name: '',
   example_cases: [{ input: '', output: '' }],
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Small reusable components
-// ─────────────────────────────────────────────────────────────────────────────
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return 'Request failed';
+}
+
+// Small pieces reused in several places
 
 function EmptyChart({ message }: { message: string }) {
   return (
     <div className="h-64 flex flex-col items-center justify-center">
-      <BarChart3 size={36} className="text-gray-200 mb-2" />
-      <p className="text-sm font-medium text-gray-400">{message}</p>
-      <p className="text-xs text-gray-300 mt-1">Data appears as students use the platform</p>
+      <p className="text-sm font-medium text-slate-500">{message}</p>
+      <p className="mt-1 text-xs text-slate-400">Data appears as students use the platform</p>
     </div>
   );
 }
@@ -120,9 +135,7 @@ function DifficultyBadge({ level }: { level: string }) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Problem Form Modal
-// ─────────────────────────────────────────────────────────────────────────────
+// Problem editor modal
 
 function ProblemFormModal({
   initial,
@@ -138,7 +151,7 @@ function ProblemFormModal({
   const [saving, setSaving]           = useState(false);
   const [err, setErr]                 = useState('');
 
-  const set = (key: keyof ProblemDraft, value: any) =>
+  const set = (key: keyof ProblemDraft, value: string | string[] | Array<{ input: string; output: string }>) =>
     setDraft(prev => ({ ...prev, [key]: value }));
 
   const updateCase = (i: number, field: 'input' | 'output', value: string) =>
@@ -159,30 +172,30 @@ function ProblemFormModal({
         concepts: conceptInput.split(',').map(s => s.trim()).filter(Boolean),
       });
       onClose();
-    } catch (e: any) {
-      setErr(e.message ?? 'Save failed');
+    } catch (e: unknown) {
+      setErr(getErrorMessage(e));
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-start justify-center p-4 overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl my-8">
 
-        {/* Modal header */}
+        {/* Header for the modal */}
         <div className="flex items-center justify-between px-6 py-4 border-b">
           <h2 className="font-black text-lg text-gray-900">
             {initial.title ? `Edit: ${initial.title}` : 'New Problem'}
           </h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 transition-colors">
-            <X size={20} />
+          <button onClick={onClose} className="text-sm text-slate-600 hover:text-slate-900">
+            Close
           </button>
         </div>
 
         <div className="p-6 space-y-5 max-h-[75vh] overflow-y-auto">
 
-          {/* Title + Difficulty */}
+          {/* Title and difficulty */}
           <div className="grid grid-cols-3 gap-4">
             <div className="col-span-2">
               <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Title *</label>
@@ -197,7 +210,7 @@ function ProblemFormModal({
               <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Difficulty *</label>
               <select
                 value={draft.difficulty}
-                onChange={e => set('difficulty', e.target.value as any)}
+                onChange={e => set('difficulty', e.target.value as ProblemDraft['difficulty'])}
                 className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
               >
                 <option value="easy">Easy</option>
@@ -231,7 +244,7 @@ function ProblemFormModal({
             />
           </div>
 
-          {/* Function name + concepts */}
+          {/* Function name and concepts */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Function Name</label>
@@ -263,7 +276,7 @@ function ProblemFormModal({
                 onClick={() => set('example_cases', [...draft.example_cases, { input: '', output: '' }])}
                 className="flex items-center gap-1 text-xs text-indigo-600 font-bold hover:underline"
               >
-                <Plus size={12} /> Add case
+                Add case
               </button>
             </div>
             <div className="space-y-2">
@@ -285,9 +298,9 @@ function ProblemFormModal({
                   {draft.example_cases.length > 1 && (
                     <button
                       onClick={() => set('example_cases', draft.example_cases.filter((_, idx) => idx !== i))}
-                      className="text-red-400 hover:text-red-600"
+                      className="text-xs text-rose-600 hover:text-rose-700"
                     >
-                      <X size={14} />
+                      Remove
                     </button>
                   )}
                 </div>
@@ -298,7 +311,7 @@ function ProblemFormModal({
           {err && <p className="text-sm text-red-600 font-medium">{err}</p>}
         </div>
 
-        {/* Modal footer */}
+        {/* Footer for the modal */}
         <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50 rounded-b-2xl">
           <button
             onClick={onClose}
@@ -309,9 +322,8 @@ function ProblemFormModal({
           <button
             onClick={handleSubmit}
             disabled={saving}
-            className="flex items-center gap-2 px-5 py-2 text-sm bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+            className="px-5 py-2 text-sm bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors"
           >
-            {saving ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}
             {saving ? 'Saving…' : 'Save Problem'}
           </button>
         </div>
@@ -320,25 +332,24 @@ function ProblemFormModal({
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Main Dashboard Component
-// ─────────────────────────────────────────────────────────────────────────────
+// Main dashboard component
 
 export default function AdminDashboard({ token }: { token: string }) {
 
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
 
-  // Analytics
+  // Analytics data
   const [summary,  setSummary]  = useState<ProgressSummary | null>(null);
   const [feedback, setFeedback] = useState<AdminFeedback[]>([]);
+  const [susData, setSusData] = useState<SUSPayload | null>(null);
 
-  // User management
+  // User management state
   const [users,        setUsers]        = useState<StudentUser[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [skillOverride, setSkillOverride] = useState<Record<number, string>>({});
   const [userMsg, setUserMsg] = useState('');
 
-  // Problem management
+  // Problem management state
   const [problems,          setProblems]          = useState<Problem[]>([]);
   const [problemsLoading,   setProblemsLoading]   = useState(false);
   const [editingProblem,    setEditingProblem]    = useState<Problem | null>(null);
@@ -349,14 +360,14 @@ export default function AdminDashboard({ token }: { token: string }) {
 
   const authHeader = { Authorization: `Bearer ${token}` };
 
-  // ── Fetchers ────────────────────────────────────────────────────────────────
+  // Data fetchers
 
   const fetchSummary = useCallback(async () => {
     try {
       const res = await fetch('http://localhost:4000/progress/summary', { headers: authHeader });
       if (!res.ok) throw new Error('Failed to load analytics');
       setSummary(await res.json());
-    } catch (e: any) { setGlobalError(e.message); }
+    } catch (e: unknown) { setGlobalError(getErrorMessage(e)); }
   }, [token]);
 
   const fetchFeedback = useCallback(async () => {
@@ -364,7 +375,7 @@ export default function AdminDashboard({ token }: { token: string }) {
       const res = await fetch('http://localhost:4000/feedback', { headers: authHeader });
       if (!res.ok) throw new Error('Failed to load feedback');
       setFeedback(await res.json());
-    } catch (e: any) { setGlobalError(e.message); }
+    } catch (e: unknown) { setGlobalError(getErrorMessage(e)); }
   }, [token]);
 
   const fetchUsers = useCallback(async () => {
@@ -373,7 +384,7 @@ export default function AdminDashboard({ token }: { token: string }) {
       const res = await fetch('http://localhost:4000/admin/users', { headers: authHeader });
       if (!res.ok) throw new Error('Failed to load users');
       setUsers(await res.json());
-    } catch (e: any) { setGlobalError(e.message); }
+    } catch (e: unknown) { setGlobalError(getErrorMessage(e)); }
     finally { setUsersLoading(false); }
   }, [token]);
 
@@ -383,15 +394,24 @@ export default function AdminDashboard({ token }: { token: string }) {
       const res = await fetch('http://localhost:4000/admin/problems', { headers: authHeader });
       if (!res.ok) throw new Error('Failed to load problems');
       setProblems(await res.json());
-    } catch (e: any) { setGlobalError(e.message); }
+    } catch (e: unknown) { setGlobalError(getErrorMessage(e)); }
     finally { setProblemsLoading(false); }
+  }, [token]);
+
+  const fetchSUS = useCallback(async () => {
+    try {
+      const res = await fetch('http://localhost:4000/sus', { headers: authHeader });
+      if (!res.ok) throw new Error('Failed to load SUS results');
+      setSusData(await res.json());
+    } catch (e: unknown) { setGlobalError(getErrorMessage(e)); }
   }, [token]);
 
   useEffect(() => { fetchSummary(); fetchFeedback(); }, []);
   useEffect(() => { if (activeTab === 'users')    fetchUsers();    }, [activeTab]);
   useEffect(() => { if (activeTab === 'problems') fetchProblems(); }, [activeTab]);
+  useEffect(() => { if (activeTab === 'sus')      fetchSUS();      }, [activeTab]);
 
-  // ── User actions ────────────────────────────────────────────────────────────
+  // User actions
 
   const flash = (setter: React.Dispatch<React.SetStateAction<string>>, msg: string) => {
     setter(msg);
@@ -428,13 +448,22 @@ export default function AdminDashboard({ token }: { token: string }) {
     fetchUsers();
   };
 
-  // ── Problem actions ─────────────────────────────────────────────────────────
+  // Problem actions
 
   const handleCreateProblem = async (draft: ProblemDraft) => {
     const res = await fetch('http://localhost:4000/admin/problems', {
       method: 'POST',
       headers: { ...authHeader, 'Content-Type': 'application/json' },
-      body: JSON.stringify(draft),
+      body: JSON.stringify({
+        title: draft.title,
+        difficulty: draft.difficulty,
+        description: draft.description,
+        starterCode: draft.starter_code,
+        concepts: draft.concepts,
+        hints: draft.hints,
+        functionName: draft.function_name,
+        exampleCases: draft.example_cases,
+      }),
     });
     if (!res.ok) throw new Error((await res.json()).message);
     flash(setProblemMsg, 'Problem created successfully.');
@@ -446,7 +475,16 @@ export default function AdminDashboard({ token }: { token: string }) {
     const res = await fetch(`http://localhost:4000/admin/problems/${editingProblem.id}`, {
       method: 'PUT',
       headers: { ...authHeader, 'Content-Type': 'application/json' },
-      body: JSON.stringify(draft),
+      body: JSON.stringify({
+        title: draft.title,
+        difficulty: draft.difficulty,
+        description: draft.description,
+        starterCode: draft.starter_code,
+        concepts: draft.concepts,
+        hints: draft.hints,
+        functionName: draft.function_name,
+        exampleCases: draft.example_cases,
+      }),
     });
     if (!res.ok) throw new Error((await res.json()).message);
     flash(setProblemMsg, 'Problem updated successfully.');
@@ -462,7 +500,7 @@ export default function AdminDashboard({ token }: { token: string }) {
     fetchProblems();
   };
 
-  // ── Derived chart data ──────────────────────────────────────────────────────
+  // Chart data derived from the loaded stats
 
   const conceptData = Object.entries(summary?.conceptHeatmap ?? {})
     .map(([concept, mastery]) => ({ concept, mastery: Math.round(mastery * 100) }))
@@ -487,21 +525,22 @@ export default function AdminDashboard({ token }: { token: string }) {
     return (rated.reduce((s, f) => s + (f.rating ?? 0), 0) / rated.length).toFixed(1);
   })();
 
-  const tabs: { key: TabKey; label: string; icon: React.ReactNode }[] = [
-    { key: 'overview',  label: 'Overview',                       icon: <BarChart3 size={13} /> },
-    { key: 'concepts',  label: 'Concept Mastery',                icon: <TrendingUp size={13} /> },
-    { key: 'errors',    label: 'Error Patterns',                 icon: <AlertCircle size={13} /> },
-    { key: 'users',     label: `Users (${totalStudents})`,       icon: <Users size={13} /> },
-    { key: 'problems',  label: `Problems (${problems.length || '…'})`, icon: <BookOpen size={13} /> },
-    { key: 'feedback',  label: `Feedback (${feedback.length})`,  icon: <MessageSquare size={13} /> },
+  const tabs: { key: TabKey; label: string }[] = [
+    { key: 'overview',  label: 'Overview' },
+    { key: 'concepts',  label: 'Concept Mastery' },
+    { key: 'errors',    label: 'Error Patterns' },
+    { key: 'users',     label: `Users (${totalStudents})` },
+    { key: 'problems',  label: `Problems (${problems.length || '…'})` },
+    { key: 'feedback',  label: `Feedback (${feedback.length})` },
+    { key: 'sus',       label: `SUS (${susData?.stats?.total_responses ?? '…'})` },
   ];
 
-  // ── Early returns ────────────────────────────────────────────────────────────
+  // Early exits while data is still loading or something went wrong
 
   if (globalError) {
     return (
-      <div className="p-10 flex items-center gap-3 text-red-600 font-semibold">
-        <AlertCircle size={20} /> {globalError}
+      <div className="p-10 text-rose-700 font-semibold">
+        {globalError}
       </div>
     );
   }
@@ -514,12 +553,12 @@ export default function AdminDashboard({ token }: { token: string }) {
     );
   }
 
-  // ── Render ──────────────────────────────────────────────────────────────────
+  // Render the dashboard
 
   return (
-    <div className="p-8 bg-gray-50 min-h-screen">
+    <div className="min-h-screen bg-slate-50 p-8">
 
-      {/* Modals */}
+      {/* Modals for creating and editing problems */}
       {creatingProblem && (
         <ProblemFormModal
           initial={BLANK_DRAFT}
@@ -534,6 +573,7 @@ export default function AdminDashboard({ token }: { token: string }) {
             difficulty:    editingProblem.difficulty,
             description:   editingProblem.description,
             starter_code:  editingProblem.starter_code,
+            hints:         editingProblem.hints ?? [],
             concepts:      editingProblem.concepts,
             function_name: editingProblem.function_name,
             example_cases: editingProblem.example_cases,
@@ -545,26 +585,18 @@ export default function AdminDashboard({ token }: { token: string }) {
 
       <div className="max-w-7xl mx-auto">
 
-        {/* ── Header ── */}
+        {/* Dashboard header */}
         <div className="flex items-center justify-between mb-8">
-          <div className="flex items-center gap-3">
-            <div className="bg-indigo-600 p-2.5 rounded-xl">
-              <Shield className="text-white" size={22} />
-            </div>
-            <div>
-              <h1 className="text-2xl font-black text-gray-900">Instructor Dashboard</h1>
-              <p className="text-xs text-gray-400 uppercase tracking-wider">SkillForge AI Admin</p>
-            </div>
+          <div>
+            <h1 className="text-2xl font-semibold text-slate-900">Instructor Dashboard</h1>
+            <p className="text-xs uppercase tracking-wide text-slate-500">SkillForge AI Admin</p>
           </div>
-          <span className="text-xs text-gray-400 font-mono bg-white border px-3 py-1.5 rounded-full">
-            Live data · refreshes on tab switch
-          </span>
         </div>
 
-        {/* ── Insight banner ── */}
-        <div className="bg-indigo-50 border-l-4 border-indigo-600 p-4 mb-8 rounded-r-xl">
-          <h2 className="text-indigo-900 font-bold flex items-center gap-2 mb-1">💡 Instructor Insight</h2>
-          <p className="text-indigo-700 text-sm">
+        {/* Quick insight banner */}
+        <div className="mb-8 rounded-lg border border-slate-200 bg-white p-4">
+          <h2 className="mb-1 text-sm font-semibold text-slate-800">Instructor Insight</h2>
+          <p className="text-sm text-slate-700">
             {conceptData.length > 0 ? (
               <>Your class is struggling most with <strong>"{conceptData[0]?.concept}"</strong>{' '}
               ({conceptData[0]?.mastery}% avg mastery). Most common error: <strong>{errorData[0]?.error ?? 'none'}</strong>.</>
@@ -574,23 +606,22 @@ export default function AdminDashboard({ token }: { token: string }) {
           </p>
         </div>
 
-        {/* ── Stat cards ── */}
+        {/* Summary stat cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-5 mb-8">
           {[
-            { icon: <Users size={18} className="text-indigo-500" />,   label: 'Students',           value: totalStudents },
-            { icon: <Award size={18} className="text-emerald-500" />,  label: 'Avg Problems Solved', value: Math.round(summary.averages.avg_solved ?? 0) },
-            { icon: <TrendingUp size={18} className="text-purple-500" />, label: 'Avg Success Rate', value: `${Math.round((summary.averages.avg_success ?? 0) * 100)}%` },
-            { icon: <MessageSquare size={18} className="text-amber-500" />, label: 'Avg Problem Rating', value: `${avgRating}/5` },
+            { label: 'Students', value: totalStudents },
+            { label: 'Avg Problems Solved', value: Math.round(summary.averages.avg_solved ?? 0) },
+            { label: 'Avg Success Rate', value: `${Math.round((summary.averages.avg_success ?? 0) * 100)}%` },
+            { label: 'Avg Problem Rating', value: `${avgRating}/5` },
           ].map((card, i) => (
-            <div key={i} className="bg-white p-5 rounded-xl shadow-sm border">
-              <div className="mb-2">{card.icon}</div>
-              <div className="text-xs text-gray-500 uppercase font-bold tracking-wide">{card.label}</div>
-              <div className="text-3xl font-black text-gray-800 mt-1">{card.value}</div>
+            <div key={i} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{card.label}</div>
+              <div className="mt-1 text-3xl font-semibold text-slate-800">{card.value}</div>
             </div>
           ))}
         </div>
 
-        {/* ── Tabs ── */}
+        {/* Navigation tabs */}
         <div className="flex gap-1 border-b mb-6 overflow-x-auto">
           {tabs.map(tab => (
             <button
@@ -602,12 +633,12 @@ export default function AdminDashboard({ token }: { token: string }) {
                   : 'border-transparent text-gray-400 hover:text-gray-600'
               }`}
             >
-              {tab.icon} {tab.label}
+              {tab.label}
             </button>
           ))}
         </div>
 
-        {/* ════ OVERVIEW ════ */}
+        {/* Overview tab */}
         {activeTab === 'overview' && (
           <div className="space-y-8">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -619,7 +650,7 @@ export default function AdminDashboard({ token }: { token: string }) {
                       <PieChart>
                         <Pie data={summary.skillDistribution} dataKey="count" nameKey="level"
                           cx="50%" cy="50%" outerRadius={90}
-                          label={({ name, value }: any) => `${name}: ${value}`}>
+                          label={({ name, value }: { name?: string; value?: number }) => `${name ?? ''}: ${value ?? 0}`}>
                           {summary.skillDistribution.map((_, i) => (
                             <Cell key={i} fill={COLORS[i % COLORS.length]} />
                           ))}
@@ -659,7 +690,7 @@ export default function AdminDashboard({ token }: { token: string }) {
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
                       <XAxis dataKey="time" tick={{ fontSize: 11 }} />
                       <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} unit="%" />
-                      <Tooltip formatter={(v: any) => [`${v}%`, 'Mastery']} />
+                      <Tooltip formatter={(v?: number | string) => [`${v ?? 0}%`, 'Mastery']} />
                       <Legend />
                       <Line type="monotone" dataKey="mastery" stroke="#4f46e5" strokeWidth={2} dot={false} name="Overall Mastery" />
                     </LineChart>
@@ -670,7 +701,7 @@ export default function AdminDashboard({ token }: { token: string }) {
           </div>
         )}
 
-        {/* ════ CONCEPTS ════ */}
+        {/* Concepts tab */}
         {activeTab === 'concepts' && (
           <div className="bg-white p-6 rounded-xl border shadow-sm">
             <h3 className="font-bold mb-1 text-gray-700">Concept Mastery Heatmap</h3>
@@ -684,7 +715,7 @@ export default function AdminDashboard({ token }: { token: string }) {
                     <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f0f0f0" />
                     <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11 }} unit="%" />
                     <YAxis type="category" dataKey="concept" tick={{ fontSize: 11 }} width={110} />
-                    <Tooltip formatter={(v: any) => [`${v}%`, 'Avg Mastery']} />
+                    <Tooltip formatter={(v?: number | string) => [`${v ?? 0}%`, 'Avg Mastery']} />
                     <Bar dataKey="mastery" radius={[0, 4, 4, 0]} fill="#8b5cf6" />
                   </BarChart>
                 </ResponsiveContainer>
@@ -693,7 +724,7 @@ export default function AdminDashboard({ token }: { token: string }) {
           </div>
         )}
 
-        {/* ════ ERRORS ════ */}
+        {/* Errors tab */}
         {activeTab === 'errors' && (
           <div className="bg-white p-6 rounded-xl border shadow-sm">
             <h3 className="font-bold mb-1 text-gray-700">Error Pattern Frequency</h3>
@@ -716,7 +747,7 @@ export default function AdminDashboard({ token }: { token: string }) {
           </div>
         )}
 
-        {/* ════ USERS ════ */}
+        {/* Users tab */}
         {activeTab === 'users' && (
           <div className="space-y-4">
             {userMsg && (
@@ -729,7 +760,6 @@ export default function AdminDashboard({ token }: { token: string }) {
               <div className="text-gray-400 text-sm animate-pulse p-6">Loading users…</div>
             ) : users.length === 0 ? (
               <div className="bg-white p-12 rounded-xl border text-center text-gray-400">
-                <Users size={40} className="mx-auto mb-3 opacity-30" />
                 <p className="font-medium text-sm">No students registered yet.</p>
               </div>
             ) : (
@@ -772,9 +802,9 @@ export default function AdminDashboard({ token }: { token: string }) {
                               <button
                                 onClick={() => handleSkillOverride(u.id)}
                                 title="Save override"
-                                className="text-indigo-500 hover:text-indigo-700 transition-colors"
+                                className="text-xs text-indigo-600 hover:text-indigo-800"
                               >
-                                <Save size={13} />
+                                Save
                               </button>
                             </div>
                           </td>
@@ -794,13 +824,13 @@ export default function AdminDashboard({ token }: { token: string }) {
                                 onClick={() => handleResetProgress(u.id, u.email)}
                                 className="flex items-center gap-1 text-xs text-amber-600 border border-amber-200 px-2 py-1 rounded hover:bg-amber-50 transition-colors"
                               >
-                                <RefreshCw size={11} /> Reset
+                                Reset
                               </button>
                               <button
                                 onClick={() => handleDeleteUser(u.id, u.email)}
                                 className="flex items-center gap-1 text-xs text-red-500 border border-red-200 px-2 py-1 rounded hover:bg-red-50 transition-colors"
                               >
-                                <Trash2 size={11} /> Delete
+                                Delete
                               </button>
                             </div>
                           </td>
@@ -814,7 +844,7 @@ export default function AdminDashboard({ token }: { token: string }) {
           </div>
         )}
 
-        {/* ════ PROBLEMS ════ */}
+        {/* Problems tab */}
         {activeTab === 'problems' && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
@@ -825,7 +855,7 @@ export default function AdminDashboard({ token }: { token: string }) {
                 onClick={() => setCreatingProblem(true)}
                 className="flex items-center gap-2 bg-indigo-600 text-white text-sm font-bold px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors"
               >
-                <Plus size={15} /> New Problem
+                New Problem
               </button>
             </div>
 
@@ -839,7 +869,6 @@ export default function AdminDashboard({ token }: { token: string }) {
               <div className="text-gray-400 text-sm animate-pulse p-6">Loading problems…</div>
             ) : problems.length === 0 ? (
               <div className="bg-white p-12 rounded-xl border text-center text-gray-400">
-                <BookOpen size={40} className="mx-auto mb-3 opacity-30" />
                 <p className="font-medium text-sm mb-2">No database problems yet.</p>
                 <p className="text-xs text-gray-300">
                   The built-in problemDatabase.ts is always available. Use this tab to add or manage extra problems.
@@ -885,13 +914,13 @@ export default function AdminDashboard({ token }: { token: string }) {
                               onClick={() => setEditingProblem(p)}
                               className="flex items-center gap-1 text-xs text-indigo-500 border border-indigo-200 px-2 py-1 rounded hover:bg-indigo-50 transition-colors"
                             >
-                              <Pencil size={11} /> Edit
+                              Edit
                             </button>
                             <button
                               onClick={() => handleDeleteProblem(p.id, p.title)}
                               className="flex items-center gap-1 text-xs text-red-400 border border-red-200 px-2 py-1 rounded hover:bg-red-50 transition-colors"
                             >
-                              <Trash2 size={11} /> Delete
+                              Delete
                             </button>
                           </div>
                         </td>
@@ -904,15 +933,14 @@ export default function AdminDashboard({ token }: { token: string }) {
           </div>
         )}
 
-        {/* ════ FEEDBACK ════ */}
+        {/* Feedback tab */}
         {activeTab === 'feedback' && (
           <div className="bg-white p-6 rounded-xl border shadow-sm">
-            <h2 className="text-lg font-bold mb-4 flex items-center gap-2 text-gray-700">
-              <MessageSquare className="text-indigo-600" size={18} /> Student Feedback
+            <h2 className="mb-4 text-lg font-semibold text-gray-700">
+              Student Feedback
             </h2>
             {feedback.length === 0 ? (
               <div className="text-center py-12 text-gray-400">
-                <MessageSquare size={40} className="mx-auto mb-3 opacity-30" />
                 <p className="text-sm font-medium">No feedback submitted yet.</p>
               </div>
             ) : (
@@ -950,6 +978,77 @@ export default function AdminDashboard({ token }: { token: string }) {
                   ))}
                 </tbody>
               </table>
+            )}
+          </div>
+        )}
+
+        {/* SUS tab */}
+        {activeTab === 'sus' && (
+          <div className="space-y-6">
+            {!susData ? (
+              <div className="text-gray-400 text-sm animate-pulse p-6">Loading SUS results…</div>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {[
+                    { label: 'Responses', value: susData.stats.total_responses },
+                    { label: 'Average SUS', value: susData.stats.avg_score ?? '—' },
+                    { label: 'Min SUS', value: susData.stats.min_score ?? '—' },
+                    { label: 'Max SUS', value: susData.stats.max_score ?? '—' },
+                  ].map((card, i) => (
+                    <div key={i} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{card.label}</div>
+                      <div className="mt-1 text-2xl font-semibold text-slate-800">{card.value}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="bg-white rounded-xl border shadow-sm overflow-x-auto">
+                  <div className="px-6 py-4 border-b">
+                    <h2 className="text-lg font-semibold text-gray-700">SUS Submissions</h2>
+                    <p className="text-xs text-gray-400 mt-1">System Usability Scale scores submitted by students.</p>
+                  </div>
+
+                  {susData.scores.length === 0 ? (
+                    <div className="p-12 text-center text-gray-400 text-sm">No SUS submissions yet.</div>
+                  ) : (
+                    <table className="w-full text-sm border-collapse">
+                      <thead>
+                        <tr className="border-b bg-gray-50 text-left text-xs uppercase text-gray-500 font-bold tracking-wider">
+                          <th className="py-3 px-4">Student</th>
+                          <th className="py-3 px-4">SUS Score</th>
+                          <th className="py-3 px-4">Responses</th>
+                          <th className="py-3 px-4">Date</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {susData.scores.map((row) => (
+                          <tr key={row.id} className="border-b last:border-none hover:bg-gray-50">
+                            <td className="py-3 px-4 font-medium text-indigo-600">{row.email}</td>
+                            <td className="py-3 px-4">
+                              <span className={`font-bold px-2 py-0.5 rounded-full text-xs ${
+                                row.score >= 80
+                                  ? 'bg-emerald-100 text-emerald-700'
+                                  : row.score >= 68
+                                  ? 'bg-amber-100 text-amber-700'
+                                  : 'bg-rose-100 text-rose-700'
+                              }`}>
+                                {row.score}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-xs text-gray-600 font-mono">
+                              [{row.responses.join(', ')}]
+                            </td>
+                            <td className="py-3 px-4 text-xs text-gray-400">
+                              {new Date(row.created_at).toLocaleDateString()}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </>
             )}
           </div>
         )}

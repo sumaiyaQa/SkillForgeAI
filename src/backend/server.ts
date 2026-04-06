@@ -13,18 +13,27 @@ import { pool } from './db.js';
 
 const app = express();
 
-// ── Middleware ────────────────────────────────────────────────────────────────
+const localOriginPattern = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i;
+
+// Middleware setup
 
 app.use(
   cors({
-    origin: 'http://localhost:5173',
+    origin: (origin, callback) => {
+      if (!origin || localOriginPattern.test(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(new Error(`CORS blocked for origin: ${origin}`));
+    },
     credentials: true,
   })
 );
 
 app.use(express.json());
 
-// ── Health check ──────────────────────────────────────────────────────────────
+// Health check route
 
 app.get('/', async (_req, res) => {
   try {
@@ -35,7 +44,7 @@ app.get('/', async (_req, res) => {
   }
 });
 
-// ── Routes ────────────────────────────────────────────────────────────────────
+// API routes
 
 app.use('/auth',     authRoutes);
 app.use('/user',     userRoutes);
@@ -45,16 +54,20 @@ app.use('/admin',    adminRoutes);
 app.use('/problems', problemRoutes);
 app.use('/sus',      susRoutes);
 
-// ── Global error handler ──────────────────────────────────────────────────────
+// Catch any unhandled server errors
 
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error('Unhandled error:', err);
   res.status(500).json({ message: 'Internal server error' });
 });
 
-// ── Start ─────────────────────────────────────────────────────────────────────
+// Start the server
 
 const PORT = 4000;
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Backend running on http://localhost:${PORT}`);
+});
+
+server.on('error', err => {
+  console.error('Backend listen error:', err);
 });

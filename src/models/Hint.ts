@@ -8,8 +8,8 @@ const bloomDifficulty: Record<BloomLevel, number> = {
 };
 
 export interface AdaptiveContext {
-  conceptMastery: Record<string, number>; // 0 to 1
-  errorHints: string[]; // AST hints
+  conceptMastery: Record<string, number>; // Mastery score for each concept (0 = knows nothing, 1 = expert)
+  errorHints: string[]; // Hints from code analysis (syntax errors, infinite loops, etc.)
   previousHintsUsed: number;
 }
 
@@ -25,7 +25,7 @@ export interface Hint {
   id: string;
   level: BloomLevel;
   content: string;
-  scaffolding: number; // 1 = earliest, higher = more detailed
+  scaffolding: number; // 1 = basic explanation, higher numbers = more detailed examples
   concept: string;
 }
 
@@ -41,7 +41,7 @@ export function selectAdaptiveHint(
 ): RuntimeHint | null {
   if (!problemHints.length) return null;
 
-  //  If AST detected a critical issue → prioritize AST
+  // If the code has syntax/logic errors, show those first before curriculum hints
   if (context.errorHints.length > 0) {
     return {
       content: context.errorHints[0],
@@ -49,7 +49,7 @@ export function selectAdaptiveHint(
     };
   }
 
-  //  Determine weakest concept
+  // Figure out which concept the student struggles with most
   const weakestConcept = problemHints.reduce((weakest, hint) => {
     const mastery = context.conceptMastery[hint.concept] ?? 0.5;
     const weakestMastery =
@@ -60,15 +60,15 @@ export function selectAdaptiveHint(
 
   const mastery = context.conceptMastery[weakestConcept] ?? 0.5;
 
-  //  Determine ZPD target level
+  // Based on their mastery, pick a Bloom level that's in their zone of proximal development
   const targetLevel = getZPDLevel(mastery);
 
-  //  Filter hints by concept
+  // Only look at hints for their weakest concept
   const conceptHints = problemHints.filter(
     h => h.concept === weakestConcept
   );
 
-  // Find hint closest to target Bloom level
+  // Pick the hint that best matches their target Bloom level
   let bestHint = conceptHints[0];
 
   conceptHints.forEach(h => {

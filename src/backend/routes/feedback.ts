@@ -4,16 +4,16 @@ import { authenticateToken, type AuthRequest } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// SUBMIT FEEDBACK (STUDENT)
+// Student feedback submission
 
-// Allows a student to submit feedback for a problem.
-// Feedback may include a rating and/or a textual comment.
+// Let a student leave feedback for a problem.
+// They can give a rating, a comment, or both.
 
 router.post('/', authenticateToken, async (req: AuthRequest, res) => {
   const userId = req.userId;
   const { problemId, rating, comment } = req.body;
 
-  // Only students can submit feedback
+  // Only students are allowed to submit feedback
   if (req.role !== 'student') {
     return res.status(403).json({
       message: 'Only students can submit feedback',
@@ -46,10 +46,10 @@ router.post('/', authenticateToken, async (req: AuthRequest, res) => {
   }
 });
 
-// VIEW ALL FEEDBACK (ADMIN)
+// Admin feedback view
 
-// Returns all submitted feedback for administrative review.
-// This endpoint is read-only and restricted to admin users.
+// Return all submitted feedback for admin review.
+// This endpoint is read-only and only available to admins.
 
 router.get('/', authenticateToken, async (req: AuthRequest, res) => {
   // Admin-only access

@@ -4,8 +4,8 @@ import { authenticateToken, type AuthRequest } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// GET /problems — returns all problems ordered by difficulty then id.
-// Requires a valid auth token (any role) so anonymous users can't scrape.
+// Return all problems, sorted by difficulty and then by id.
+// A valid auth token is required so anonymous users cannot scrape the list.
 
 router.get('/', authenticateToken, async (_req: AuthRequest, res) => {
   try {

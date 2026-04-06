@@ -4,7 +4,7 @@ import { authenticateToken, type AuthRequest } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// POST /sus — student submits their SUS score after completing the survey
+// Student submits their SUS score after finishing the survey
 router.post('/', authenticateToken, async (req: AuthRequest, res) => {
   const userId = req.userId;
 
@@ -19,7 +19,7 @@ router.post('/', authenticateToken, async (req: AuthRequest, res) => {
   }
 
   try {
-    // INSERT OR UPDATE — if the student somehow submits twice, keep the first
+    // Save the first submission and ignore any duplicate attempts
     await pool.query(
       `INSERT INTO sus_scores (user_id, score, responses)
        VALUES ($1, $2, $3::jsonb)
@@ -34,7 +34,36 @@ router.post('/', authenticateToken, async (req: AuthRequest, res) => {
   }
 });
 
-// GET /sus — admin retrieves all SUS scores with user emails
+// Student checks whether they have already submitted SUS
+router.get('/me', authenticateToken, async (req: AuthRequest, res) => {
+  const userId = req.userId;
+
+  if (req.role !== 'student') {
+    return res.status(403).json({ message: 'Only students can query personal SUS status' });
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT score, created_at FROM sus_scores WHERE user_id = $1 LIMIT 1`,
+      [userId]
+    );
+
+    if (result.rowCount === 0) {
+      return res.json({ submitted: false, score: null });
+    }
+
+    return res.json({
+      submitted: true,
+      score: result.rows[0].score,
+      created_at: result.rows[0].created_at,
+    });
+  } catch (err) {
+    console.error('SUS STATUS ERROR:', err);
+    return res.status(500).json({ message: 'Failed to fetch SUS status' });
+  }
+});
+
+// Admin views all SUS scores along with student emails
 router.get('/', authenticateToken, async (req: AuthRequest, res) => {
   if (req.role !== 'admin') {
     return res.status(403).json({ message: 'Admin access required' });
@@ -53,7 +82,7 @@ router.get('/', authenticateToken, async (req: AuthRequest, res) => {
       ORDER BY s.created_at DESC
     `);
 
-    // Also return aggregate stats useful for the dashboard
+    // Include summary stats for the dashboard too
     const stats = await pool.query(`
       SELECT
         COUNT(*)::int              AS total_responses,

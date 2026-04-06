@@ -1,8 +1,6 @@
 import type { Hint } from '../models/Hint';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Problem model
-// ─────────────────────────────────────────────────────────────────────────────
+// This is what a coding problem looks like in our system
 
 export interface Problem {
   id: number;
@@ -17,9 +15,7 @@ export interface Problem {
   functionName?: string;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Shape returned by the backend (snake_case columns)
-// ─────────────────────────────────────────────────────────────────────────────
+// The database sends us problems with snake_case column names, so we need to convert them
 
 interface RawDBProblem {
   id: number;
@@ -34,9 +30,7 @@ interface RawDBProblem {
   function_name: string | null;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Map DB row → frontend Problem shape
-// ─────────────────────────────────────────────────────────────────────────────
+// Convert the database format to what the frontend expects
 
 function mapRow(row: RawDBProblem): Problem {
   return {
@@ -53,18 +47,14 @@ function mapRow(row: RawDBProblem): Problem {
   };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Runtime cache
-// Populated once on first call to loadProblems(), then reused.
-// ─────────────────────────────────────────────────────────────────────────────
+// Store problems in memory so we only fetch them once from the backend
+// This gets populated the first time loadProblems() is called
 
 let _cache: Problem[] = [];
 let _loaded = false;
 
-/**
- * Fetch all problems from the backend and cache them.
- * Call this once on app startup (in App.tsx useEffect).
- */
+// Download all problems from the backend and save them in memory
+// Call this once when the app first starts
 export async function loadProblems(token: string): Promise<Problem[]> {
   if (_loaded) return _cache;
 
@@ -87,25 +77,51 @@ export async function loadProblems(token: string): Promise<Problem[]> {
   }
 }
 
-/**
- * Synchronous accessor used throughout the app after loadProblems() resolves.
- * Returns whatever is currently in the cache.
- */
+// Get the problems we already loaded from the backend
+// This is fast because it just returns what's already in memory
 export function getProblemDatabase(): Problem[] {
   return _cache;
 }
 
-/**
- * Manually inject problems into the cache (used for testing / SSR).
- */
+// Manually set the problems list (useful for testing or development)
 export function setProblemCache(problems: Problem[]): void {
   _cache  = problems;
   _loaded = true;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Helpers (unchanged API)
-// ─────────────────────────────────────────────────────────────────────────────
+// Get all the concept names that are actually used in practice problems
+// (ignores concepts that only appear in the placement quiz)
+export function getCoveredConcepts(problems: Problem[] = _cache): Set<string> {
+  const covered = new Set<string>();
+
+  for (const problem of problems) {
+    for (const concept of problem.concepts) {
+      covered.add(concept);
+    }
+  }
+
+  return covered;
+}
+
+// Remove mastery scores for concepts that don't have any practice problems
+// This keeps the profile clean and focused on what's actually learnable
+export function filterMasteryToCoveredConcepts(
+  mastery: Record<string, number>,
+  problems: Problem[] = _cache,
+): Record<string, number> {
+  const covered = getCoveredConcepts(problems);
+  const filtered: Record<string, number> = {};
+
+  for (const [concept, value] of Object.entries(mastery)) {
+    if (covered.has(concept)) {
+      filtered[concept] = value;
+    }
+  }
+
+  return filtered;
+}
+
+// Utility functions
 
 export function getNextProblem(currentId: number, pool: Problem[]): Problem | null {
   const index = pool.findIndex(p => p.id === currentId);

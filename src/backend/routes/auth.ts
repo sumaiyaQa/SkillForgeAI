@@ -5,15 +5,8 @@ import { pool } from '../db.js';
 
 const router = express.Router();
 
-// ---------------------------------------------------------------------------
-// Helper — ensures whatever arrives from the client for skillLevel is one
-// of the three valid values. Defaults to 'beginner' if missing or invalid.
-//
-// WHY THIS EXISTS:
-// The users.skill_level column is VARCHAR and the DB will reject anything
-// that doesn't fit. More importantly, we never want arbitrary client data
-// written directly to the DB — always validate on the server side first.
-// ---------------------------------------------------------------------------
+// Helper for keeping skillLevel within the allowed values.
+// If the client sends something missing or invalid, we fall back to beginner.
 
 const VALID_SKILL_LEVELS = ['beginner', 'intermediate', 'advanced'] as const;
 type SkillLevel = typeof VALID_SKILL_LEVELS[number];
@@ -25,10 +18,7 @@ function sanitiseSkillLevel(raw: unknown): SkillLevel {
   return 'beginner'; // safe default
 }
 
-// ---------------------------------------------------------------------------
-// REGISTER
-// Creates a new student account. All registered users default to 'student'.
-// ---------------------------------------------------------------------------
+// Register a new user. Everyone starts as a student unless the admin check passes.
 
 router.post('/register', async (req, res) => {
   const { email, password, skillLevel, role, adminKey } = req.body;
@@ -46,7 +36,7 @@ router.post('/register', async (req, res) => {
       return res.status(409).json({ message: 'User already exists' });
     }
 
-    // Role logic: admin registration requires a secret key
+    // Admin sign-up needs a secret key
     let finalRole = 'student';
     if (role === 'admin') {
       if (adminKey !== process.env.ADMIN_SECRET_KEY) {
@@ -57,9 +47,8 @@ router.post('/register', async (req, res) => {
 
     const passwordHash = await bcrypt.hash(password, 10);
 
-    // sanitiseSkillLevel() prevents any string longer than 'intermediate'
-    // (or any unexpected value) from reaching the VARCHAR column.
-    // This is the fix for the "value too long for type character varying(20)" error.
+    // sanitiseSkillLevel() keeps unexpected values out of the database.
+    // That avoids the "value too long for type character varying(20)" error.
     const safeSkillLevel = sanitiseSkillLevel(skillLevel);
 
     const newUser = await pool.query(
@@ -78,10 +67,7 @@ router.post('/register', async (req, res) => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// LOGIN
-// Authenticates a user and issues a signed JWT (7-day expiry).
-// ---------------------------------------------------------------------------
+// Log a user in and return a signed JWT that lasts for 7 days.
 
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;

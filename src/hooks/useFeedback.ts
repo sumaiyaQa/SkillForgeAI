@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import type { AuthUser } from '../types';
 
+// Hook to manage the feedback form: rating, comment, and submission status
 export function useFeedback(authUser: AuthUser | null, currentProblem: { id: number } | null) {
   const [feedbackRating, setFeedbackRating] = useState<number | null>(null);
   const [feedbackComment, setFeedbackComment] = useState('');
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
 
+  // Send feedback to the backend
   const handleSubmitFeedback = async () => {
     if (!authUser || authUser.role !== 'student') return;
     if (!currentProblem) return;
@@ -30,6 +32,7 @@ export function useFeedback(authUser: AuthUser | null, currentProblem: { id: num
 
       if (!res.ok) throw new Error('Failed to submit feedback');
 
+      // Show success message and clear the form
       setFeedbackMessage('✓ Feedback submitted — thank you!');
       setFeedbackRating(null);
       setFeedbackComment('');
@@ -37,6 +40,7 @@ export function useFeedback(authUser: AuthUser | null, currentProblem: { id: num
       setFeedbackMessage('Error submitting feedback. Please try again.');
     }
 
+    // Clear the message after 4 seconds so it doesn't stay on screen forever
     setTimeout(() => setFeedbackMessage(null), 4000);
   };
 

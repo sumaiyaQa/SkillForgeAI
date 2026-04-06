@@ -1,46 +1,43 @@
 /**
- * bkt.ts — Simplified Bayesian Knowledge Tracing (BKT)
+* Bayesian Knowledge Tracing (BKT)  A way to track how well a student understands concepts
  *
- * BKT models knowledge as a hidden binary state: either the student
- * "knows" a concept or they don't. We track the PROBABILITY of knowing
- * it given the evidence of correct/incorrect responses.
+ * Instead of just giving a score, BKT tracks the PROBABILITY that a student knows a concept.
+ * Based on whether they get problems right or wrong, we update that probability.
  *
- * Standard BKT parameters (these are empirically tuned defaults;
- * you can cite Corbett & Anderson 1995 in your dissertation):
+ * The system uses four parameters:
+ *   - pInit: Starting guess before they solve anything
+ *   - pLearn: Chance they learn it after each attempt
+ *   - pGuess: Chance they get it right without actually knowing (lucky guess)
+ *   - pSlip: Chance they get it wrong even though they know it (careless mistake)
  *
- *   P(L0)  — prior probability of knowing the concept before any practice
- *   P(T)   — probability of learning/transitioning on each opportunity
- *   P(G)   — probability of a correct response despite NOT knowing (guess)
- *   P(S)   — probability of an incorrect response despite knowing (slip)
- *
- * Reference: Corbett, A.T. & Anderson, J.R. (1995). Knowledge tracing:
- * Modeling the acquisition of procedural knowledge. User Modeling and
- * User-Adapted Interaction, 4(4), 253–278.
+ * This is a real model used in education research, published by Corbett & Anderson (1995).
  */
 
 export interface BKTParams {
-  pLearn: number;  // P(T) — transit/learn probability per attempt
-  pGuess: number;  // P(G)
-  pSlip:  number;  // P(S)
-  pInit:  number;  // P(L0) — starting prior if no history
+  pLearn: number;  // Chance they learn it on this attempt
+  pGuess: number;  // Chance they guess correctly
+  pSlip:  number;  // Chance they make a careless mistake
+  pInit:  number;  // Starting assumption about their knowledge
 }
 
 // Default parameters (well-established empirical values from ITS literature)
 const DEFAULT_BKT: BKTParams = {
-  pLearn: 0.3,   // 30% chance of learning the concept on each attempt
-  pGuess: 0.25,  // 25% chance of guessing correctly without knowledge
-  pSlip:  0.1,   // 10% chance of slipping despite knowing
-  pInit:  0.3,   // Start with 30% prior (reasonable for novice students)
+  pLearn: 0.3,   // After each problem, 30% chance they learn it
+  pGuess: 0.25,  // About 25% chance they get lucky and guess right
+  pSlip:  0.1,   // About 10% chance they know it but make a mistake
+  pInit:  0.3,   // Before doing anything, assume 30% they know it
 };
-
 /**
- * updateMastery — Apply one BKT update step.
+ * Update how much we think a student knows based on their response
+ * If they got it right, increase confidence. If wrong, decrease it.
  *
- * @param currentMastery  Current P(Ln) — probability student knows concept (0–1)
- * @param correct         Whether the student answered correctly
- * @param params          BKT parameters (uses defaults if omitted)
- * @returns               Updated P(Ln+1)
+
+ * @param currentMastery  What we think they know (0 = nothing, 1 = everything)
+ * @param correct  True if they got it right, false if they got it wrong
+ * @param params  The BKT tuning values (uses defaults if not provided)
+ * @returns  Updated belief about their knowledge
  */
+
 export function updateMastery(
   currentMastery: number,
   correct: boolean,
@@ -49,36 +46,34 @@ export function updateMastery(
   const { pLearn, pGuess, pSlip } = params;
   const pKnow = currentMastery;
 
-  // Step 1: Update belief given the observed response (Bayes' rule)
+  // First: Use Bayes' rule to update our belief based on whether they got it right
   let pKnowGivenObs: number;
 
   if (correct) {
-    // P(know | correct) = P(correct | know) * P(know) / P(correct)
+    // If they got it right, calculate P(know | correct)
     const pCorrect = pKnow * (1 - pSlip) + (1 - pKnow) * pGuess;
     pKnowGivenObs = (pKnow * (1 - pSlip)) / pCorrect;
   } else {
-    // P(know | wrong) = P(wrong | know) * P(know) / P(wrong)
+    // If they got it wrong, calculate P(know | wrong)
     const pWrong = pKnow * pSlip + (1 - pKnow) * (1 - pGuess);
     pKnowGivenObs = (pKnow * pSlip) / pWrong;
   }
 
-  // Step 2: Apply learning transition — student may have learned even if wrong
+  // Second: Account for learning they might have learned even if they got it wrong
   const pKnowNext = pKnowGivenObs + (1 - pKnowGivenObs) * pLearn;
 
-  // Clamp to [0, 1] for safety
+  // Keep the probability between 0 and 1
   return Math.min(1, Math.max(0, pKnowNext));
 }
 
 /**
- * updateConceptMastery — Update mastery for all concepts a problem covers.
+ * Update how much students know for all concepts in a problem
+ * Use this when they submit code if it passes, boost all concept mastery if it fails, lower it
  *
- * Drop-in replacement for the flat +0.1 / -0.05 logic in App.tsx.
- * Call this in the handleRunCode success/failure branches.
- *
- * @param currentMastery  Record<concept, mastery> from userProfile
- * @param concepts        Concepts covered by the current problem
- * @param correct         Whether submission passed all tests
- * @returns               New conceptMastery record
+ * @param currentMastery  Their current mastery scores for each concept
+ * @param concepts  Which concepts this problem covers
+ * @param correct  Whether they solved the problem
+ * @returns  Updated mastery scores for all concepts
  */
 export function updateConceptMastery(
   currentMastery: Record<string, number>,
@@ -96,7 +91,7 @@ export function updateConceptMastery(
 }
 
 /**
- * getMasteryLabel — Human-readable label for use in the UI.
+ * Get a friendly label for their mastery level
  */
 export function getMasteryLabel(mastery: number): string {
   if (mastery < 0.4) return 'Novice';
@@ -106,7 +101,7 @@ export function getMasteryLabel(mastery: number): string {
 }
 
 /**
- * getMasteryColor — Tailwind colour class for mastery badges.
+ * Get a color that matches their mastery level (for badges and progress bars)
  */
 export function getMasteryColor(mastery: number): string {
   if (mastery < 0.4) return 'text-red-600';

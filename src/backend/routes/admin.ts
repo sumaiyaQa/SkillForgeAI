@@ -4,8 +4,8 @@ import { authenticateToken, type AuthRequest } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// All routes in this file require admin role.
-// The adminOnly middleware is applied per-route below.
+// Every route in this file requires an admin role.
+// The adminOnly check is added to each route below.
 
 function adminOnly(req: AuthRequest, res: express.Response, next: express.NextFunction) {
   if (req.role !== 'admin') {
@@ -14,11 +14,9 @@ function adminOnly(req: AuthRequest, res: express.Response, next: express.NextFu
   next();
 }
 
-/* ================================================================
-   USER MANAGEMENT
-================================================================ */
+/* User management */
 
-// GET /admin/users — list all students with their progress summary
+// List all students together with a summary of their progress
 router.get('/users', authenticateToken, adminOnly, async (_req, res) => {
   try {
     const result = await pool.query(`
@@ -45,7 +43,7 @@ router.get('/users', authenticateToken, adminOnly, async (_req, res) => {
   }
 });
 
-// PATCH /admin/users/:id/skill — manually override a student's skill level
+// Manually change a student's skill level
 router.patch('/users/:id/skill', authenticateToken, adminOnly, async (req: AuthRequest, res) => {
   const { id } = req.params;
   const { skillLevel } = req.body;
@@ -67,14 +65,15 @@ router.patch('/users/:id/skill', authenticateToken, adminOnly, async (req: AuthR
   }
 });
 
-// DELETE /admin/users/:id — remove a student account and all their data
+// Remove a student account and all of their data
 router.delete('/users/:id', authenticateToken, adminOnly, async (req: AuthRequest, res) => {
   const { id } = req.params;
 
   try {
-    // Delete progress and feedback first (FK constraint), then the user
+    // Remove progress and feedback first, then delete the user
     await pool.query('DELETE FROM user_progress WHERE user_id = $1', [id]);
     await pool.query('DELETE FROM feedback WHERE user_id = $1', [id]);
+    await pool.query('DELETE FROM sus_scores WHERE user_id = $1', [id]);
     await pool.query('DELETE FROM users WHERE id = $1', [id]);
 
     res.json({ message: 'User deleted successfully' });
@@ -84,12 +83,13 @@ router.delete('/users/:id', authenticateToken, adminOnly, async (req: AuthReques
   }
 });
 
-// POST /admin/users/:id/reset — reset a student's progress without deleting their account
+// Reset a student's progress without deleting the account
 router.post('/users/:id/reset', authenticateToken, adminOnly, async (req: AuthRequest, res) => {
   const { id } = req.params;
 
   try {
     await pool.query('DELETE FROM user_progress WHERE user_id = $1', [id]);
+    await pool.query('DELETE FROM sus_scores WHERE user_id = $1', [id]);
     res.json({ message: 'Student progress reset successfully' });
   } catch (err) {
     console.error('RESET PROGRESS ERROR:', err);
@@ -97,14 +97,11 @@ router.post('/users/:id/reset', authenticateToken, adminOnly, async (req: AuthRe
   }
 });
 
-/* ================================================================
-   PROBLEM MANAGEMENT (CRUD)
-   Problems are stored in the DB so admins can manage them 
-   without code changes. The frontend problemDatabase.ts remains 
-   as the fallback seed — these DB records take precedence.
-================================================================ */
+/* Problem management (CRUD)
+  Problems live in the database so admins can manage them without code changes.
+  The frontend problemDatabase.ts stays as the fallback seed, and database records take priority. */
 
-// GET /admin/problems — list all problems
+// List all problems
 router.get('/problems', authenticateToken, adminOnly, async (_req, res) => {
   try {
     const result = await pool.query(`
@@ -117,7 +114,7 @@ router.get('/problems', authenticateToken, adminOnly, async (_req, res) => {
   }
 });
 
-// POST /admin/problems — create a new problem
+// Create a new problem
 router.post('/problems', authenticateToken, adminOnly, async (req: AuthRequest, res) => {
   const { title, difficulty, description, starterCode, concepts, hints, functionName, exampleCases } = req.body;
 
@@ -153,7 +150,7 @@ router.post('/problems', authenticateToken, adminOnly, async (req: AuthRequest, 
   }
 });
 
-// PUT /admin/problems/:id — update an existing problem
+// Update an existing problem
 router.put('/problems/:id', authenticateToken, adminOnly, async (req: AuthRequest, res) => {
   const { id } = req.params;
   const { title, difficulty, description, starterCode, concepts, hints, functionName, exampleCases } = req.body;
@@ -200,7 +197,7 @@ router.put('/problems/:id', authenticateToken, adminOnly, async (req: AuthReques
   }
 });
 
-// DELETE /admin/problems/:id — remove a problem
+// Remove a problem
 router.delete('/problems/:id', authenticateToken, adminOnly, async (req: AuthRequest, res) => {
   const { id } = req.params;
 

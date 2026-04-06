@@ -1,73 +1,126 @@
-# React + TypeScript + Vite
+# SkillForge AI - Adaptive Python Learning Platform
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+**Author:** Sumaiya Akter
+**Student ID:** 3140467  
+**Supervisor:** Preetha VK
+**Academic Year:** 2025–2026  
+**University:** University of Stirling
+**Submission Date:** April 2026
 
-Currently, two official plugins are available:
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Overview
 
-## React Compiler
+SkillForge AI is a web-based adaptive learning platform designed to support beginners in learning Python programming. It combines in-browser code execution with intelligent feedback and personalised learning features.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+**Key features:**
 
-## Expanding the ESLint configuration
+- Secure in-browser Python execution via Pyodide
+- AST-based feedback for detecting common beginner mistakes
+- Adaptive hints based on Bloom's Taxonomy
+- Knowledge tracking using Bayesian Knowledge Tracing (BKT)
+- Placement testing to personalise learning paths
+- Algorithm visualisations (Factorial, Bubble Sort, Binary Search)
+- Instructor dashboard with analytics and student progress
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+**Key files:**
+- src/App.tsx - Main frontend entry point
+- src/backend/server.ts - Backend server
+- src/models/bkt.ts - Bayesian Knowledge Tracing logic
+- src/models/Hint.ts - Adaptive hint system
+- src/workers/pythonWorker.js - Python execution and AST analysis
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+## Prerequisites
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+- Node.js (v18+)
+- npm
+- PostgreSQL
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+## Setup & Installation
+
+### 1. Install Dependencies
+
+**Frontend:**
+
+npm install
+
+**Backend:**
+
+cd src/backend
+npm install
+cd ../..
+
+
+### 2. Configure the Database
+
+Create a PostgreSQL database:
+
+CREATE DATABASE skillforge;
+
+Create a .env file inside src/backend/:
+
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=skillforge
+DB_USER=postgres
+DB_PASSWORD=your_password
+JWT_SECRET=your_secret
+ADMIN_SECRET_KEY=SkillForgeAdmin2026
+
+
+### 3. Run the Application
+
+**Frontend:**
+npm run dev
+
+**Backend:**
+cd/src/backend
+
+node --loader ts-node/esm server.ts
+
+
+The app will be available at: http://localhost:5173
+
+### 4. Run Tests
+npm test
+
+
+## Third-Party Libraries
+
+- Frontend : React, TypeScript, Vite, Monaco Editor, Tailwind CSS
+- Backend : Express, PostgreSQL (pg), bcrypt, jsonwebtoken
+- Python Execution : Pyodide (via CDN) 
+
+
+## Datasets
+
+No datasets are included in this archive. The system generates its own data during use problems and user data are stored in PostgreSQL and can be recreated by running the system and using the admin dashboard.
+
+
+
+## AI Usage Declaration
+
+I critically reviewed every AI-generated suggestion before using it. I did not accept AI output uncritically, and I verified the resulting code by reading it, running tests, and making manual edits where needed.
+
+- AI tools used in this project include Claude.
+- The dissertation prose, analysis, and conclusions were written by me and were not generated by AI.
+- For UI simplification and consistency, I asked AI to help remove overly heavy logos and design patterns across components, then applied the suggested changes to areas like layout, authentication, admin, quiz, and survey pages, reviewed everything manually, checked for errors, and made further adjustments before finalising the updates.
+- I asked AI how to detect issues like infinite while loops and missing return statements using Python’s AST, reviewed the example traversal patterns and explanations it provided, then used that understanding to write my own set of 10 AST rules from scratch, which I tested on buggy code to make sure they worked correctly and didn’t produce false positives.
+
+## Codebase Navigation
+
+To understand the system:
+
+1. Start with App.tsx for the overall application flow
+2. Review bkt.ts and Hint.ts for the adaptive logic
+3. Check pythonWorker.js for execution and AST analysis
+4. Explore the backend routes for API functionality
+
+ Run npm test before making any changes.
+
+
+## Academic Integrity
+
+All project-specific code was written by the author or created with documented AI collaboration and then manually reviewed, tested, and edited by the author. Third-party libraries are properly listed above. The dissertation contains no AI-generated text, and this submission complies with University of Stirling guidelines.

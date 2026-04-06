@@ -1,11 +1,9 @@
-// ---------------------------------------------------------------------------
-// useProgress — extracted from App.tsx
-// Handles loading progress from the backend on login, and autosaving on change.
-// ---------------------------------------------------------------------------
+// Hook to load progress from the backend when students log in and save their work automatically
 
 import { useEffect, useCallback, useRef } from 'react';
 import type { AuthUser, UserProfile } from '../types';
 import type { Problem } from '../utils/problemDatabase';
+import { getProblemDatabase } from '../utils/problemDatabase';
 
 const API_BASE = 'http://localhost:4000';
 
@@ -20,47 +18,90 @@ export function useProgress(
   setCode: React.Dispatch<React.SetStateAction<string>>,
   loadProblems: (token: string) => Promise<Problem[]>,
 ) {
-  const isSavingRef = useRef(false);
+  type SavePayload = {
+    profile: UserProfile;
+    problemId: number;
+    code: string;
+    token: string;
+  };
 
-  // Save progress — debounced, prevents overlapping saves
-  const saveProgress = useCallback(async (
-    profile: UserProfile,
-    problemId: number,
-    code: string,
-    token: string,
-  ) => {
-    if (isSavingRef.current) return;
+  const isSavingRef = useRef(false);
+  const pendingSaveRef = useRef<SavePayload | null>(null);
+  const latestProfileRef = useRef(userProfile);
+  const latestCodeRef = useRef(code);
+
+  useEffect(() => {
+    latestProfileRef.current = userProfile;
+  }, [userProfile]);
+
+  useEffect(() => {
+    latestCodeRef.current = code;
+  }, [code]);
+
+  // Don't send multiple saves at once; queue the latest one and send it when the previous finishes
+  const saveProgress = useCallback(async (payload: SavePayload) => {
+    if (isSavingRef.current) {
+      // Store the latest data and send it next, discarding older queued data
+      pendingSaveRef.current = payload;
+      return;
+    }
+
     isSavingRef.current = true;
     try {
       await fetch(`${API_BASE}/progress`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${payload.token}`,
         },
         body: JSON.stringify({
-          profile,
-          lastProblemId: problemId,
-          lastCode: code,
+          profile: payload.profile,
+          lastProblemId: payload.problemId,
+          lastCode: payload.code,
         }),
       });
     } catch (err) {
       console.error('Save failed:', err);
     } finally {
       isSavingRef.current = false;
+
+      const next = pendingSaveRef.current;
+      if (next) {
+        pendingSaveRef.current = null;
+        saveProgress(next);
+      }
     }
   }, []);
 
-  // Autosave every 1.5s when profile or code changes
+  // Every 1.5 seconds, save their current progress (code and mastery) to the backend
   useEffect(() => {
     if (!authUser || !currentProblem) return;
     const timeout = setTimeout(() => {
-      saveProgress(userProfile, currentProblem.id, code, authUser.token);
+      saveProgress({
+        profile: userProfile,
+        problemId: currentProblem.id,
+        code,
+        token: authUser.token,
+      });
     }, 1500);
     return () => clearTimeout(timeout);
   }, [userProfile, code, authUser, currentProblem?.id, saveProgress]);
 
-  // Load saved progress on login
+  // When they switch to a different problem, save their code for the old problem first
+  useEffect(() => {
+    if (!authUser || !currentProblem) return;
+
+    return () => {
+      saveProgress({
+        profile: latestProfileRef.current,
+        problemId: currentProblem.id,
+        code: latestCodeRef.current,
+        token: authUser.token,
+      });
+    };
+  }, [authUser, currentProblem?.id, saveProgress]);
+
+  // When they log in, restore everything: their profile, last problem, and last code
   useEffect(() => {
     if (!authUser) return;
 
@@ -74,13 +115,14 @@ export function useProgress(
         });
         const data = await response.json();
 
-        // Restore quiz status and profile
-        const shouldShowQuiz = !data?.profile?.skillLevel && authUser.role !== 'admin';
+        // Restore their quiz status and all their learning data
+        const hasSeededProfile = Object.keys(userProfile.conceptMastery).length > 0;
+        const shouldShowQuiz = !data?.profile?.skillLevel && authUser.role !== 'admin' && !hasSeededProfile;
         setQuizCompleted(shouldShowQuiz ? false : true);
 
         if (data?.profile) {
           setUserProfile(prev => {
-            // Don't overwrite quiz priors
+            // Don't lose the priors they got from the placement quiz
             if (Object.keys(prev.conceptMastery).length > 0) return prev;
             return { 
               ...prev, 
@@ -90,16 +132,18 @@ export function useProgress(
           });
         }
 
-        // Restore problem and code
+        // Load their last problem and the code they were working on
         const lastProblem = problems.find(p => p.id === data?.last_problem_id) ?? problems[0];
         setCurrentProblem(lastProblem);
         setCode(data?.last_code ?? lastProblem.starterCode);
       } catch (error) {
         console.error('Failed to load progress:', error);
-        // Fallback
-        const problems = await loadProblems(authUser.token);
+        // If loading from the backend fails, use cached problems instead; don't force them to redo the quiz
+        const problems = getProblemDatabase();
         if (problems.length > 0) {
-          setQuizCompleted(authUser.role === 'admin' ? true : false);
+          if (authUser.role === 'admin') {
+            setQuizCompleted(true);
+          }
           setCurrentProblem(problems[0]);
           setCode(problems[0].starterCode);
         }

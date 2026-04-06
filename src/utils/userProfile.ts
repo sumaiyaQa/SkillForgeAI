@@ -1,10 +1,8 @@
 import type { UserProfile } from '../types';
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+// Utility functions for tracking and calculating user progress
 
-/** Classifies a Python error string into a short category key */
+// Identify what type of error the user ran into (syntax, logic, etc.)
 export function classifyError(errorStr: string): string {
   if (!errorStr) return 'unknown';
   if (errorStr.includes('SyntaxError')) return 'SyntaxError';
@@ -20,19 +18,24 @@ export function classifyError(errorStr: string): string {
   return 'RuntimeError';
 }
 
-/** Computes overall mastery as the mean of all known concept scores */
-export function computeOverallMastery(conceptMastery: Record<string, number>): number {
-  const values = Object.values(conceptMastery);
+// Average all the user's concept mastery scores to get their overall skill
+// optionally filtered to just specific concepts
+export function computeOverallMastery(
+  conceptMastery: Record<string, number>,
+  allowedConcepts?: Iterable<string>
+): number {
+  const values = allowedConcepts
+    ? [...allowedConcepts]
+        .map(concept => conceptMastery[concept])
+        .filter((value): value is number => typeof value === 'number')
+    : Object.values(conceptMastery);
+
   if (values.length === 0) return 0;
   return values.reduce((a, b) => a + b, 0) / values.length;
 }
 
-/** Updates skill level based on problems solved and mastery.
- *  currentLevel is preserved until the student has enough solve history
- *  for the activity-based thresholds to be meaningful — prevents
- *  the placement quiz result from being overwritten to 'beginner'
- *  just because solvedCount is 0.
- */
+// Determine if the user should level up from beginner to intermediate or advanced
+// Keep their current level if they haven't solved enough problems yet
 export function computeSkillLevel(
   solvedCount: number,
   overallMastery: number,
@@ -44,9 +47,7 @@ export function computeSkillLevel(
   return 'beginner';
 }
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
+// Default profile for new users or those without any progress yet
 
 export const initialUserProfile: UserProfile = {
   skillLevel: 'beginner',

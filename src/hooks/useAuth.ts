@@ -1,13 +1,8 @@
-// ---------------------------------------------------------------------------
-// useAuth — extracted from App.tsx
-// Handles localStorage auth restore, handleLogin (for Login component),
-// and handleLogout.
-// ---------------------------------------------------------------------------
+// Hook to manage login/logout and remember the user's session in localStorage
 
 import { useState, useEffect } from 'react';
 import type { AuthUser, UserProfile } from '../types';
 import { initialUserProfile } from '../utils/userProfile';
-import { getProblemDatabase } from '../utils/problemDatabase';
 import type { Problem } from '../utils/problemDatabase';
 
 export function useAuth(
@@ -18,7 +13,7 @@ export function useAuth(
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
 
-  // Restore auth from localStorage on mount
+  // On first load, check if they were already logged in (stored in browser memory)
   useEffect(() => {
     const raw = localStorage.getItem('skillforge:auth');
     if (raw) {

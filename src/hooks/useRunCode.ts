@@ -5,6 +5,7 @@ import { classifyError, computeOverallMastery, computeSkillLevel } from '../util
 import { runPython } from '../utils/pythonRunner';
 import { selectAdaptiveHint } from '../models/Hint';
 import { updateConceptMastery } from '../models/bkt';
+import { getCoveredConcepts } from '../utils/problemDatabase';
 
 export function useRunCode(
   currentProblem: Problem | null,
@@ -19,6 +20,8 @@ export function useRunCode(
   const [running, setRunning] = useState(false);
   const [failureCount, setFailureCount] = useState(0);
   const failureCountRef = useRef(0);
+  const coveredConcepts = getCoveredConcepts();
+  const activeConcepts = coveredConcepts.size > 0 ? coveredConcepts : undefined;
 
   const reset = () => {
     setOutput('');
@@ -41,13 +44,15 @@ export function useRunCode(
       setOutput(res.output || '');
       setError(res.error || '');
 
-      // --- AST hints (always show if present) ---
+      // Show any code analysis messages (syntax errors, infinite loops, etc.)
       const astHints: string[] = res.hints ?? [];
       if (astHints.length > 0 && !res.passed) setHints(astHints);
 
-      // --- Update profile atomically ---
+      // Update all their progress: score, mastery, time taken, errors, etc.
       setUserProfile(prev => {
         const isAlreadySolved = prev.solvedProblemIds.includes(currentProblem.id);
+        // Only count first-time attempts in the submission stats
+        // If they run code on a problem they already solved, that's just practice
         const newTotalSubmissions = isAlreadySolved
           ? prev.totalSubmissions
           : prev.totalSubmissions + 1;
@@ -64,10 +69,17 @@ export function useRunCode(
         }
 
         if (isAlreadySolved) {
+          const updatedMasteryOnRepeat = updateConceptMastery(
+            prev.conceptMastery,
+            currentProblem.concepts,
+            Boolean(res.passed)
+          );
+
           return {
             ...prev,
             errorPatterns: newErrorPatterns,
             errorHistory: newErrorHistory,
+            conceptMastery: updatedMasteryOnRepeat,
             solvedSolutions: { ...prev.solvedSolutions, [currentProblem.id]: code },
           };
         }
@@ -80,7 +92,7 @@ export function useRunCode(
           );
 
           const newSolvedIds = [...prev.solvedProblemIds, currentProblem.id];
-          const overallMastery = computeOverallMastery(updatedMasteryOnSuccess);
+          const overallMastery = computeOverallMastery(updatedMasteryOnSuccess, activeConcepts);
           const newTrajectory = [
             ...prev.learningTrajectory,
             { timestamp: Date.now(), overallMastery },
@@ -91,7 +103,9 @@ export function useRunCode(
           const newSuccessful = prev.successfulSubmissions + 1;
           const newAvgTime = Math.round(newTotalTime / newSuccessful);
 
-          const masteryEntries = Object.entries(updatedMasteryOnSuccess);
+          const masteryEntries = Object.entries(updatedMasteryOnSuccess).filter(
+            ([concept]) => !activeConcepts || activeConcepts.has(concept)
+          );
           const strengths = masteryEntries.filter(([, v]) => v >= 0.75).map(([k]) => k);
           const weaknesses = masteryEntries.filter(([, v]) => v < 0.45).map(([k]) => k);
 
@@ -117,7 +131,7 @@ export function useRunCode(
           };
         }
 
-        // BKT update on failure — use updated mastery immediately for hint selection
+        // Update their concept mastery right away, then pick a hint based on their new level
         const updatedMasteryOnFail = updateConceptMastery(
           prev.conceptMastery,
           currentProblem.concepts,
@@ -126,8 +140,8 @@ export function useRunCode(
 
         failureCountRef.current += 1;
 
-        // Select hint using the *updated* (post-BKT) mastery so scaffolding
-        // reflects the student's current knowledge state, not the stale prior.
+        // Use their updated knowledge to pick a hint at their level
+        // Don't use their old mastery score — use what we just calculated
         const adaptiveHint = selectAdaptiveHint(currentProblem.hints, {
           conceptMastery: updatedMasteryOnFail,
           errorHints: astHints,
@@ -148,7 +162,7 @@ export function useRunCode(
         };
       });
 
-      // Keep failureCount state in sync (ref was already incremented above)
+      // Update the failure counter UI to match the internal state
       if (!res.passed && !userProfile.solvedProblemIds.includes(currentProblem.id)) {
         setFailureCount(failureCountRef.current);
       }
