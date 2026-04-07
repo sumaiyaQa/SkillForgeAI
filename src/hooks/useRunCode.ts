@@ -44,15 +44,12 @@ export function useRunCode(
       setOutput(res.output || '');
       setError(res.error || '');
 
-      // Show any code analysis messages (syntax errors, infinite loops, etc.)
       const astHints: string[] = res.hints ?? [];
       if (astHints.length > 0 && !res.passed) setHints(astHints);
 
-      // Update all their progress: score, mastery, time taken, errors, etc.
       setUserProfile(prev => {
         const isAlreadySolved = prev.solvedProblemIds.includes(currentProblem.id);
-        // Only count first-time attempts in the submission stats
-        // If they run code on a problem they already solved, that's just practice
+        // Count submissions only for first-time solves.
         const newTotalSubmissions = isAlreadySolved
           ? prev.totalSubmissions
           : prev.totalSubmissions + 1;
@@ -131,7 +128,6 @@ export function useRunCode(
           };
         }
 
-        // Update their concept mastery right away, then pick a hint based on their new level
         const updatedMasteryOnFail = updateConceptMastery(
           prev.conceptMastery,
           currentProblem.concepts,
@@ -140,8 +136,7 @@ export function useRunCode(
 
         failureCountRef.current += 1;
 
-        // Use their updated knowledge to pick a hint at their level
-        // Don't use their old mastery score — use what we just calculated
+        // Pick hints from the updated mastery state.
         const adaptiveHint = selectAdaptiveHint(currentProblem.hints, {
           conceptMastery: updatedMasteryOnFail,
           errorHints: astHints,
@@ -162,7 +157,6 @@ export function useRunCode(
         };
       });
 
-      // Update the failure counter UI to match the internal state
       if (!res.passed && !userProfile.solvedProblemIds.includes(currentProblem.id)) {
         setFailureCount(failureCountRef.current);
       }

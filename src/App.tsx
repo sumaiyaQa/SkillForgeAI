@@ -31,17 +31,11 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'code' | 'visualization' | 'analysis'>('code');
   const [sessionStartTime, setSessionStartTime] = useState<number>(() => Date.now());
 
-  // Set up authentication and login/logout
-  // This handles checking if the user is logged in and managing the auth state
-
   const { authUser, authChecked, handleLogin, handleLogout } = useAuth(
     setUserProfile,
     setQuizCompleted,
     setCurrentProblem,
   );
-
-  // Load the SUS survey status so we don't annoy users by showing it again
-  // after they've already completed it
 
   useEffect(() => {
     if (!authUser || authUser.role !== 'student') return;
@@ -77,9 +71,6 @@ const App: React.FC = () => {
     loadSusStatus();
   }, [authUser]);
 
-  // Automatically save the user's progress (code, profile, solved problems)
-  // and load it back when they log in again
-
   useProgress(
     authUser,
     userProfile,
@@ -92,8 +83,6 @@ const App: React.FC = () => {
     loadProblems,
   );
 
-  // Handle running user code, checking test cases, and generating hints
-
   const { output, error, hints, running, failureCount, reset, handleRunCode } = useRunCode(
     currentProblem,
     code,
@@ -102,8 +91,6 @@ const App: React.FC = () => {
     setUserProfile,
   );
 
-  // Manage feedback ratings and comments that users submit after solving problems
-
   const {
     feedbackRating, setFeedbackRating,
     feedbackComment, setFeedbackComment,
@@ -111,17 +98,11 @@ const App: React.FC = () => {
     handleSubmitFeedback,
   } = useFeedback(authUser, currentProblem);
 
-  // Show the SUS survey after they've solved at least 5 problems
-  // (to gather feedback about the teaching experience)
-
   useEffect(() => {
     if (userProfile.solvedProblemIds.length >= 5 && !susSubmitted && !showSurvey) {
       setShowSurvey(true);
     }
   }, [userProfile.solvedProblemIds.length, susSubmitted, showSurvey]);
-
-  // When the user picks a new problem, load their saved code for it
-  // and reset the output/errors/hints so everything is fresh
 
   useEffect(() => {
     if (!currentProblem) return;
@@ -131,9 +112,6 @@ const App: React.FC = () => {
     setSessionStartTime(Date.now());
     setActiveTab('code');
   }, [currentProblem?.id]);
-
-  // Calculate progress stats: problems solved, success rate, and which problems
-  // to recommend next based on the user's skill level
 
   const solvedCount = userProfile.solvedProblemIds?.length ?? 0;
   const totalProblems = getProblemDatabase().length;
@@ -161,9 +139,6 @@ const App: React.FC = () => {
   }, [userProfile.conceptMastery]);
 
   const visibleConceptMastery = filterMasteryToCoveredConcepts(userProfile.conceptMastery);
-
-  // Helper functions to pick the next problem to show the user
-  // Smart recommendations based on what they're weak at
 
   const recommendNextProblem = () => {
     if (!currentProblem) return;
@@ -196,8 +171,6 @@ const App: React.FC = () => {
     const filtered = ranked.filter(problem => !/hello world/i.test(problem.title));
     return filtered[0] ?? ranked[0] ?? null;
   };
-
-  // Show loading screens or login/quiz pages depending on what state we're in
 
   if (!authChecked) {
     return (
@@ -262,8 +235,6 @@ const App: React.FC = () => {
   }
 
   const isSolved = userProfile.solvedProblemIds.includes(currentProblem.id);
-
-  // Build and return the main UI
 
   return (
     <div className="min-h-screen bg-slate-50">

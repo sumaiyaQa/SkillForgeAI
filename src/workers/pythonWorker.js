@@ -123,7 +123,7 @@ def analyze_code(source_code):
                 if not has_return:
                     add_unique_hint(f"⚠️ Function '{node.name}' does not return any value.")
 
-        # RULE 10: Unused parameters
+        # RULE 9: Unused parameters
         for node in ast.walk(tree):
             if isinstance(node, ast.FunctionDef):
                 param_names = [arg.arg for arg in node.args.args]
@@ -131,6 +131,15 @@ def analyze_code(source_code):
                 for param in param_names:
                     if param not in used_names:
                         add_unique_hint(f"⚠️ Parameter '{param}' is defined but never used.")
+
+        # RULE 10: Mutable default arguments
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef):
+                for default in node.args.defaults:
+                    if isinstance(default, (ast.List, ast.Dict, ast.Set)):
+                        add_unique_hint(
+                            f"⚠️ Function '{node.name}' uses a mutable default argument. Use None and initialize inside the function."
+                        )
 
         return {
             "hints": hints,
