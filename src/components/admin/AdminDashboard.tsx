@@ -1,3 +1,18 @@
+// Map backend snake_case problem fields to frontend camelCase
+function mapProblemFromBackend(row: any): Problem {
+  return {
+    id: row.id,
+    title: row.title,
+    difficulty: row.difficulty,
+    description: row.description,
+    starter_code: row.starter_code,
+    hints: row.hints,
+    concepts: row.concepts,
+    function_name: row.function_name,
+    example_cases: row.example_cases,
+    updated_at: row.updated_at,
+  };
+}
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -393,7 +408,8 @@ export default function AdminDashboard({ token }: { token: string }) {
     try {
       const res = await fetch('http://localhost:4000/admin/problems', { headers: authHeader });
       if (!res.ok) throw new Error('Failed to load problems');
-      setProblems(await res.json());
+      const data = await res.json();
+      setProblems(Array.isArray(data) ? data.map(mapProblemFromBackend) : []);
     } catch (e: unknown) { setGlobalError(getErrorMessage(e)); }
     finally { setProblemsLoading(false); }
   }, [token]);
@@ -601,7 +617,7 @@ export default function AdminDashboard({ token }: { token: string }) {
               <>Your class is struggling most with <strong>"{conceptData[0]?.concept}"</strong>{' '}
               ({conceptData[0]?.mastery}% avg mastery). Most common error: <strong>{errorData[0]?.error ?? 'none'}</strong>.</>
             ) : (
-              'No mastery data yet — insights will appear once students solve problems.'
+              'No mastery data yet insights will appear once students solve problems.'
             )}
           </p>
         </div>
@@ -743,7 +759,7 @@ export default function AdminDashboard({ token }: { token: string }) {
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-            ) : <EmptyChart message="No error data yet — appears after students submit failing code" />}
+            ) : <EmptyChart message="No error data yet appears after students submit failing code" />}
           </div>
         )}
 
@@ -849,7 +865,7 @@ export default function AdminDashboard({ token }: { token: string }) {
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <p className="text-xs text-gray-500 max-w-lg">
-                Problems created here are stored in the database and available to all students immediately — no code changes required.
+                Problems created here are stored in the database and available to all students immediately no code changes required.
               </p>
               <button
                 onClick={() => setCreatingProblem(true)}

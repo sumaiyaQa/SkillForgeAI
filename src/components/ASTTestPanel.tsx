@@ -91,19 +91,7 @@ export default function ASTTestPanel({ problemId }: Props) {
           <p className="text-xs text-slate-500">Powered by Python Abstract Syntax Tree (AST)</p>
         </div>
 
-        <div className="space-y-4 p-5 text-sm text-slate-700">
-          <p>
-            Every time you click <strong>Run Code</strong>, your submission is statically analysed
-            before execution using Python&apos;s built-in <code className="rounded bg-slate-100 px-1 text-xs">ast</code> module.
-            This catches structural problems and common mistakes before runtime.
-          </p>
-
-          <div className="grid gap-2 text-xs text-slate-600 md:grid-cols-3">
-            <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2">Sandboxed in a web worker</div>
-            <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2">Checks code before execution</div>
-            <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2">Hints support step-by-step learning</div>
-          </div>
-        </div>
+        
       </div>
 
       <div>
@@ -133,11 +121,7 @@ export default function ASTTestPanel({ problemId }: Props) {
         </div>
       </div>
 
-      <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-xs text-slate-700">
-        <strong>Note:</strong> AST analysis detects structural issues only. It does not compare
-        your solution against a model answer. Correctness is verified separately by running your
-        function against automated test cases.
-      </div>
+      
     </div>
   );
 }

@@ -1,126 +1,148 @@
-# SkillForge AI - Adaptive Python Learning Platform
+# SkillForge AI
 
-**Author:** Sumaiya Akter
-**Student ID:** 3140467  
-**Supervisor:** Preetha VK
-**Academic Year:** 2025–2026  
-**University:** University of Stirling
-**Submission Date:** April 2026
+SkillForge AI is an adaptive programming education platform for Python. It provides real-time, privacy-preserving code execution, personalized feedback, and instructor analytics—all in the browser.
 
 
-## Overview
-
-SkillForge AI is a web-based adaptive learning platform designed to support beginners in learning Python programming. It combines in-browser code execution with intelligent feedback and personalised learning features.
-
-**Key features:**
-
-- Secure in-browser Python execution via Pyodide
-- AST-based feedback for detecting common beginner mistakes
-- Adaptive hints based on Bloom's Taxonomy
-- Knowledge tracking using Bayesian Knowledge Tracing (BKT)
-- Placement testing to personalise learning paths
-- Algorithm visualisations (Factorial, Bubble Sort, Binary Search)
-- Instructor dashboard with analytics and student progress
+## Features
+- Client-side Python execution using Pyodide (no student code sent to a server for execution)
+- AST-based static analysis for instant, educational feedback on code structure and common errors
+- Bayesian Knowledge Tracing (BKT) per-concept learner modeling, seeded by a placement quiz
+- Bloom's Taxonomy-calibrated hints for adaptive scaffolding
+- Progress persistence and role-based access (student/admin)
+- Instructor dashboard with analytics, user management, and problem editing
 
 
+## Quick Start
 
-**Key files:**
-- src/App.tsx - Main frontend entry point
-- src/backend/server.ts - Backend server
-- src/models/bkt.ts - Bayesian Knowledge Tracing logic
-- src/models/Hint.ts - Adaptive hint system
-- src/workers/pythonWorker.js - Python execution and AST analysis
+### Prerequisites
+- Node.js (v18+ recommended)
+- PostgreSQL (for backend persistence)
 
-## Prerequisites
+### Setup
+1. Install dependencies
+   npm install
+   
+2. Configure the backend
+   - Copy you details to src/backend/.env and set your database credentials.
+   - Ensure PostgreSQL is running and a database named skillforge exists.
 
-- Node.js (v18+)
-- npm
-- PostgreSQL
+3. Start the backend
+   cd src/backend
+   node --loader ts-node/esm server.ts    
 
+4. Start the frontend
+   
+   npm run dev
+   
+   The app will be available at (http://localhost:5173)
 
-## Setup & Installation
+### Running Tests
 
-### 1. Install Dependencies
-
-**Frontend:**
-
-npm install
-
-**Backend:**
-
-cd src/backend
-npm install
-cd ../..
+npm test
 
 
-### 2. Configure the Database
+## Development Commands
 
-Create a PostgreSQL database:
 
-CREATE DATABASE skillforge;
+npm install                # Install dependencies
+npm run dev                # Run frontend dev server (Vite)
+cd src/backend && npx ts-node server.ts   # Run backend server (Express)
+npm run build              # Build for production
+npm run lint               # Lint with ESLint
+npm test                   # Run all tests
+npx vitest run src/tests/visualizers.test.ts # Run a specific test file
+npx vitest                 # Run tests in watch mode
 
-Create a .env file inside src/backend/:
 
+## Backend Setup
+
+The backend requires PostgreSQL and environment variables in src/backend/.env:
 DB_HOST=localhost
 DB_PORT=5432
 DB_NAME=skillforge
 DB_USER=postgres
-DB_PASSWORD=your_password
-JWT_SECRET=your_secret
-ADMIN_SECRET_KEY=SkillForgeAdmin2026
+DB_PASSWORD=yourpassword
+JWT_SECRET=your-jwt-secret
 
 
-### 3. Run the Application
+## Architecture Overview
 
-**Frontend:**
-npm run dev
+### Frontend (React + TypeScript + Vite)
+- src/App.tsx: Main application with problem selection, code editor and progress tracking
+- src/components/: UI components including CodeEditor.tsx (Monaco), visualizers (FactorialVisualizer, BubbleSortVisualizer, BinarySearchVisualizer), Login.tsx, ASTTestPanel.tsx
+- src/hooks/useASTComparison.ts: React hook for AST comparison workflow
 
-**Backend:**
-cd/src/backend
+### Python Execution & Analysis
+- src/workers/pythonWorker.js: Web Worker running Pyodide with embedded Python AST analyzer (anti-pattern detection: infinite loops, mutable defaults, print vs return, etc.) and AST comparator for structural comparison against golden references
+- src/utils/pythonRunner.ts: TypeScript interface to the Python worker
 
-node --loader ts-node/esm server.ts
+### AST Comparison System (src/utils/ast/)
+- types.ts: Type definitions for AST nodes, divergences, golden references
+- comparator.ts: Orchestrator for comparing student code against references
+- goldenReferences.ts: Problem-specific canonical solutions and flexibility rules
+- astComparisonEngine.py: Full Python AST comparison implementation
 
+### Problem Database
+- src/utils/problemDatabase.ts: All problems with test cases, hints (Bloom levels), and optional visualizations
+- src/models/Hint.ts: Hint type with scaffolding levels
 
-The app will be available at: http://localhost:5173
+### Backend (Express + PostgreSQL)
+- src/backend/server.ts: Express server on port 4000
+- src/backend/db.ts: PostgreSQL connection pool
+- src/backend/routes/auth.ts: Registration and login (bcrypt + JWT)
+- src/backend/routes/progress.ts: Save/load user progress
+- src/backend/middleware/auth.ts: JWT authentication middleware
+- src/backend/routes/admin.ts: Admin routes for user and problem management
+- src/backend/routes/feedback.ts: Problem feedback
+- src/backend/routes/problems.ts: Problem CRUD
 
-### 4. Run Tests
-npm test
-
-
-## Third-Party Libraries
-
-- Frontend : React, TypeScript, Vite, Monaco Editor, Tailwind CSS
-- Backend : Express, PostgreSQL (pg), bcrypt, jsonwebtoken
-- Python Execution : Pyodide (via CDN) 
-
-
-## Datasets
-
-No datasets are included in this archive. The system generates its own data during use problems and user data are stored in PostgreSQL and can be recreated by running the system and using the admin dashboard.
-
-
-
-## AI Usage Declaration
-
-I critically reviewed every AI-generated suggestion before using it. I did not accept AI output uncritically, and I verified the resulting code by reading it, running tests, and making manual edits where needed.
-
-- AI tools used in this project include Claude.
-- The dissertation prose, analysis, and conclusions were written by me and were not generated by AI.
-- For UI simplification and consistency, I asked AI to help remove overly heavy logos and design patterns across components, then applied the suggested changes to areas like layout, authentication, admin, quiz, and survey pages, reviewed everything manually, checked for errors, and made further adjustments before finalising the updates.
-- I asked AI how to detect issues like infinite while loops and missing return statements using Python’s AST, reviewed the example traversal patterns and explanations it provided, then used that understanding to write my own set of 10 AST rules from scratch, which I tested on buggy code to make sure they worked correctly and didn’t produce false positives.
-
-## Codebase Navigation
-
-To understand the system:
-
-1. Start with App.tsx for the overall application flow
-2. Review bkt.ts and Hint.ts for the adaptive logic
-3. Check pythonWorker.js for execution and AST analysis
-4. Explore the backend routes for API functionality
-
- Run npm test before making any changes.
+### Key Data Flow
+1. User writes Python code in Monaco editor
+2. On "Run Code", code is sent to Pyodide worker
+3. Worker runs AST analysis (detects anti-patterns), then executes code
+4. Results compared against test cases from problemDatabase
+5. Optionally, AST comparison runs against golden references for structural feedback
+6. Progress auto-saves to backend via debounced API calls
 
 
-## Academic Integrity
 
-All project-specific code was written by the author or created with documented AI collaboration and then manually reviewed, tested, and edited by the author. Third-party libraries are properly listed above. The dissertation contains no AI-generated text, and this submission complies with University of Stirling guidelines.
+## Conventions & Extensibility
+
+### Problem Structure
+Problems in problemDatabase.ts require:
+- functionName for function-style problems (enables automatic test case execution)
+- hints array with Bloom levels (remember, understand, apply, analyze) and scaffolding numbers
+- Optional visualization key linking to visualizer components
+
+### AST Golden References
+When adding golden references in goldenReferences.ts:
+- Include requiredNodes (e.g., ['FunctionDef', 'Return'])
+- Set flexibility rules when multiple approaches are valid (e.g., allowLoopTypeChange: true)
+- Provide alternatives array for problems with multiple valid solutions
+
+### Test Files
+- Tests are in src/tests/ using Vitest
+- Visualizer step generators should be exported for testing
+
+
+
+## Key Technologies
+- React (frontend)
+- TypeScript (frontend/backend)
+- Pyodide (Python in browser)
+- PostgreSQL (backend persistence)
+- Express (backend API)
+- Vitest (testing)
+
+
+## Deployment
+- For production, build the frontend with npm run build and deploy the backend as a Node.js service.
+- Ensure environment variables are set for database and JWT secret.
+
+
+## Acknowledgements
+- Pyodide (https://pyodide.org/)
+- Bloom's Taxonomy
+- Bayesian Knowledge Tracing (Corbett & Anderson, 1995)
+
+For more details, see the code comments and source files. This README combines all setup, architecture, and development conventions for SkillForge AI.

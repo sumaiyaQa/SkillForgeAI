@@ -78,7 +78,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       <div className="rounded-xl border border-slate-200 bg-white p-4">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-xs font-semibold uppercase text-slate-500">
-            {masteryView === 'weakest' ? 'Weakest Concepts (Global)' : 'Strongest Concepts (Global)'}
+            {masteryView === 'weakest' ? 'Weakest Concepts' : 'Strongest Concepts'}
           </h3>
           <div className="flex rounded-md border border-slate-200 p-0.5 text-[10px]">
             <button
